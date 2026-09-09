@@ -6,7 +6,7 @@ Project scaffold for an automated directory export tool. The intended result is 
 
 ## Start here
 
-- [THINKING.md](THINKING.md): initial approach comparison, provisional decisions, unknowns, and the AI collaboration record.
+- [THINKING.md](THINKING.md): reserved for the author's direct thoughts and input.
 - [Discovery log](docs/EXPERIMENTS.md): prioritized experiments and a template for recording actual results.
 - [Source layout](src/README.md): proposed components and their responsibilities.
 - [Validation plan](tests/README.md): planned coverage and acceptance checks.
@@ -57,7 +57,7 @@ The proposed pipeline is configuration → authentication → discovery → dura
 
 ```text
 README.md             Project status and operator documentation
-THINKING.md           Decisions and AI collaboration record
+THINKING.md           Author's direct thoughts and input
 requirements.txt      Placeholder dependency manifest
 .gitignore            Excludes credentials and local data artifacts
 docs/EXPERIMENTS.md    Discovery checklist and experiment records
