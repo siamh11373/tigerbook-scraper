@@ -1,0 +1,67 @@
+# Local credentials and configuration
+.env
+.env.*
+config.local.*
+credentials*
+secrets*
+*.pem
+*.key
+
+# Authentication state, browser recordings, and diagnostic artifacts
+.auth/
+auth-state*.json
+storage-state*.json
+storageState*.json
+cookies*.json
+cookies*.txt
+browser-profile/
+playwright/.cache/
+playwright-report/
+test-results/
+traces/
+*.har
+*.log
+
+# Real profile data and local persistence
+data/
+output/
+outputs/
+exports/
+logs/
+artifacts/
+*.csv
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Confidential source materials and local reference libraries
+knowledge-base/
+originals/
+private/
+*.pdf
+*.zip
+
+# Runtime and tool artifacts
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+dist/
+build/
+
+# Machine-specific files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.tmp
