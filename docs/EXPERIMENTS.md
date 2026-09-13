@@ -67,6 +67,16 @@ Copy this template only when recording an actual experiment. Keep hypotheses, ob
 - AI contribution: Codex implemented code/tests, investigated failures, reviewed the diff, and wrote operator documentation. This log reports that work; it is not the author's personal reflection. THINKING.md was unchanged.
 - Remaining blocker: local credentials are still unconfigured. No authenticated benchmark, small live export, full collection, or manually uploaded Sheet exists.
 
+### Clean-checkout rehearsal and final recovery review
+
+- Related commit: `f70e3b1`, pushed to the existing public repository.
+- Cloned the public repository into a new temporary directory. Created a new Python 3.12.14 environment with `python -m venv`, installed `requirements.txt` using pip, and ran the documented Playwright browser installation command. The browser binary was already present in the machine's Playwright cache.
+- Ran all 49 tests in that fresh checkout: passed. Ruff lint/format, Git whitespace checks, and the installed CLI's expected missing-credentials error (exit 3) passed. The import resolved to the fresh checkout, not the development copy.
+- This rehearses installation and synthetic operation only. A fresh authenticated reviewer run remains blocked on credentials and verified site integration.
+- Final code review found that a failed fidelity audit could fall outside the sampling interval on restart. Persisted the requirement to repeat that profile's audit and added a regression test. A successful later profile cannot clear that obligation.
+- Also tested interruption immediately after the final record commit. Resume now restores the verified-report flag from durable audit evidence after reconciling all records, avoiding a permanently stale partial report.
+- THINKING.md remained unchanged. Staged files were reviewed to exclude credentials, personal records, exports, sessions, databases, and confidential sources.
+
 ## Completed authenticated experiments
 
 None yet. Credentials are required before inspecting the directory and validating its extraction adapter.

@@ -43,10 +43,17 @@ def collect(adapter: Adapter, state: State, *, limit=None, progress=print) -> No
                 fields = from_mapping(adapter.profile(ref))
                 audit_count = state.get("audit_count", 0)
                 # Check the first ten records and subsequently every 1,000 records.
-                if audit_count < 10 or counts["complete"] % 1000 == 0:
+                audit_key = f"audit_required:{ref.id}"
+                if (
+                    audit_count < 10
+                    or counts["complete"] % 1000 == 0
+                    or state.get(audit_key, False)
+                ):
+                    state.note(audit_key, True)
                     if not adapter.audit(ref, fields):
                         raise ExtractionError("Profile fidelity comparison failed.")
                     state.note("audit_count", audit_count + 1)
+                    state.note(audit_key, False)
                 state.complete(ref.id, fields)
                 counts["complete"] += 1
                 state.note("field_fidelity_verified", state.get("audit_count", 0) > 0)
@@ -83,3 +90,7 @@ def collect(adapter: Adapter, state: State, *, limit=None, progress=print) -> No
         if total is not None and total != state.membership_count(phase):
             raise DiscoveryError("The listing ended before its reported population was reconciled.")
     process_pending()
+    # Recover a crash after the last record committed but before its run flag did.
+    counts = state.counts()
+    if not counts["pending"] and not counts["failed"] and state.get("audit_count", 0) > 0:
+        state.note("field_fidelity_verified", True)

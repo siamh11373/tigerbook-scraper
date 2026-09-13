@@ -86,3 +86,45 @@ def test_authentication_block_preserves_pending_profile(tmp_path):
         collect(SyntheticAdapter(AuthenticationError("synthetic")), state, progress=lambda _: None)
     assert state.counts()["pending"] == 1
     state.close()
+
+
+def test_failed_fidelity_audit_cannot_be_skipped_on_resume(tmp_path):
+    state = new_state(tmp_path / "run.sqlite")
+    state.note("audit_count", 10)
+
+    class BadFidelity(SyntheticAdapter):
+        def audit(self, ref, fields):
+            return ref.id != "1"
+
+    # One fails at a sample boundary; the other profiles move the count past it.
+    collect(BadFidelity(), state, progress=lambda _: None)
+    assert state.counts()["failed"] == 1
+    assert state.counts()["complete"] == 2
+    collect(BadFidelity(), state, progress=lambda _: None)
+    assert state.counts()["failed"] == 1
+    assert state.counts()["complete"] == 2
+    assert export_run(state, tmp_path / "out")["status"] == "partial"
+    state.close()
+
+
+def test_resume_after_final_record_commit_recovers_report_flag(tmp_path, monkeypatch):
+    state = new_state(tmp_path / "run.sqlite")
+
+    class SingleProfile(SyntheticAdapter):
+        def list_page(self, cursor):
+            return ListingPage((ProfileRef("1", "https://example.test/1"),), None, 1, True)
+
+    save = state.complete
+
+    def save_then_interrupt(profile_id, fields):
+        save(profile_id, fields)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(state, "complete", save_then_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        collect(SingleProfile(), state, progress=lambda _: None)
+    assert state.counts()["complete"] == 1
+    monkeypatch.setattr(state, "complete", save)
+    collect(SingleProfile(), state, progress=lambda _: None)
+    assert export_run(state, tmp_path / "out")["status"] == "complete"
+    state.close()
