@@ -1,4 +1,2 @@
-# Placeholder dependency manifest for the planning scaffold.
-# No runtime dependencies or application have been implemented.
-# Select and record dependencies after the initial discovery experiments.
-# Replace this manifest if the implementation uses a different runtime.
+# Install the package and the tested developer tools.
+-e .[dev]

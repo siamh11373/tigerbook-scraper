@@ -34,6 +34,25 @@ Copy this template only when recording an actual experiment. Keep hypotheses, ob
 - **Related commit:** Add only an actual commit identifier.
 - **AI involvement:** Tool, sanitized prompt summary, accepted/rejected advice, and verification.
 
-## Completed live experiments
+## 2026-09-13: implementation observations
 
-None yet.
+### Public authentication inspection
+
+- Target: TigerNet, confirmed by the author. Collection and recipient permissions were confirmed by the author in the planning conversation.
+- Method: followed the public `/login` link in a fresh Playwright Chromium context without submitting credentials.
+- Observed result: redirect to `https://fed.princeton.edu/cas/login`. The form contains username and password inputs, hidden execution/event fields, and a LOGIN submit button.
+- Decision: drive the observed CAS form through the browser and let the browser maintain its hidden values and session state. Never submit credentials to an unobserved identity-provider origin.
+- Limitation: this verifies the public login form only. MFA behavior, authenticated navigation, population counts, and profile/API structures remain unverified.
+- Credential configuration: an ignored local JSON template was created with empty values. No credential values were printed or committed.
+
+### Durable collection and export core
+
+- Implemented transactional SQLite discovery checkpoints, stable-ID records, isolated scope/account identity, dynamic field storage, streamed CSV generation and readback, and a completion report.
+- Implemented rate pacing, bounded transient retries, Retry-After handling, one reauthentication per failed request, and response disposal.
+- Validation: 26 synthetic tests passed on Python 3.12.14. Ruff lint/format and Git whitespace checks passed.
+- Important distinction: these synthetic tests establish local behavior, not TigerNet compatibility or a complete live dataset.
+- AI contribution: Codex wrote the implementation and synthetic tests. THINKING.md remains author-provided text only.
+
+## Completed authenticated experiments
+
+None yet. Credentials are required before inspecting the directory and validating its extraction adapter.

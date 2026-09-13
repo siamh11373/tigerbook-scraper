@@ -2,7 +2,7 @@
 
 Project scaffold for an automated directory export tool. The intended result is a single-command run that authenticates through a supported method, discovers the permitted profile population, captures fields dynamically, and produces a validated UTF-8 CSV.
 
-**Status: planning and repository setup. The scraper is not implemented.** No live TigerBook login, profile collection, or export has been performed as part of this project setup.
+**Status: implementation in progress.** The persistence, retry, dynamic-field, and CSV-validation core is implemented and tested with synthetic data. The public TigerNet CAS login form has been inspected in a fresh browser. Authenticated directory compatibility and a live export remain unverified.
 
 ## Start here
 
