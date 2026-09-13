@@ -229,3 +229,29 @@ directory integration remain unverified at that checkpoint. These changes remain
   source changes within the cache age remain a documented consistency limitation.
 - No full collection was launched by these experiments. THINKING.md was unchanged. Real
   credentials, sessions, response bodies, records, databases, and reports were not published.
+
+### Request-builder trace for multi-profile retrieval
+
+- The author requested a bounded investigation of a batch-first collection path. A plain
+  HTTP fetch of the public page and direct fetches of five previously referenced static
+  bundles returned 403. One normal attended Princeton login subsequently completed;
+  browser page observation captured 29 script files locally, with no observed 403/429
+  responses during that observation. This was not a sustained throughput benchmark.
+- Offline analysis decoded 2,620 generated route definitions and traced a shipped SDK
+  user-search method through its request construction and response converter. The GET
+  method accepts a list of user IDs, query, scope, limit, offset, and ordering parameters.
+  Its converter describes identity/display information, email, subnetwork IDs, an update
+  timestamp, and messaging availability. It does not describe the labelled employment,
+  education, contact, badge, and community sections needed for complete profile extraction.
+  Converter output is not proof of the complete raw response or this account's access.
+- Other batch matches concerned recommendation events or UI state updates. The familiar
+  base, header, body, badge, and followed-community routes still identify individual
+  profiles. No combined full-profile interface was established. Generated route coverage
+  and captured bundles are not proof that no such interface exists elsewhere.
+- Prepared one three-ID GET check of the exact SDK-observed user-search interface, gated
+  on fresh authentication and observation of all five normal profile responses. The
+  initial script-capture browser had already closed. The second Princeton MFA attempt
+  timed out after 300 seconds, so the candidate request was never sent. Raw response
+  coverage, account access, field equivalence, and any speedup remain unverified.
+- Scripts, inspection helpers, and diagnostic reports remain in ignored local output.
+  No production collection change or full scrape was started; THINKING.md was untouched.
