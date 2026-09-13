@@ -124,3 +124,11 @@ directory integration remain unverified at that checkpoint. These changes remain
 - The local run exported 15 profiles with 57 columns and no recorded profile failures. Three additional discovered profiles remain pending at the sample limit. Coverage and independent field fidelity remain unverified.
 - The author found the JSON-filled CSV difficult to read. Added a presentation layer: decoded section headings, name columns first, line-separated lists, and numbered nested records. It applies to every discovered field without changing extraction or stored records.
 - `profiles.csv` now contains readable values; `profiles.raw.csv` retains the previous exact keys and structured JSON representation. Both are verified against SQLite before replacement. No new dependency or authenticated request is needed to regenerate these files.
+
+### Same-day throughput investigation
+
+- The measured collection phase completed 15 profiles in 213.95 seconds, about 14.26 seconds per profile. A linear projection for the initially reported 131,892 members is 21.77 days, excluding later interruptions and reconciliation.
+- The current adapter requires five observed profile-data responses per profile, sometimes additional community pages, and browser navigation. Even with zero other overhead, five requests at the configured one-request-per-second pace would require 7.63 days. This pace is our conservative configuration, not a verified TigerNet service limit.
+- Completing that population in ten hours would require at least 18.32 profile-data requests per second, before directory requests, retries, and reconciliation. No evidence currently establishes that this load is supported. The global pacing and throttling protections remain in place.
+- Removed profile image, media, and font downloads while preserving their URLs in extracted profile structures and the DOM. Scripts, stylesheets, and data responses are retained. No live speedup is claimed until measured.
+- The saved directory capture did not expose a labelled bulk-export control. Official Hivebrite documentation describes separately provisioned partner administrator access, which is not established by ordinary TigerNet login. An approved bulk export remains a candidate requiring administrator confirmation: https://docs.hivebrite.com/authentication

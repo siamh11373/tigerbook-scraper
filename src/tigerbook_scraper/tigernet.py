@@ -110,6 +110,11 @@ class TigerNetAdapter(SiteAdapter):
             captured, failures = {}, []
 
             def pace(route):
+                # Export image/link URLs from the profile structures and DOM;
+                # downloading their binary content adds no fields to the CSV.
+                if route.request.resource_type in ("image", "media", "font"):
+                    route.abort()
+                    return
                 if response_kind(route.request.url, ref.id):
                     self.fetcher.pacer.wait()
                 route.fallback()

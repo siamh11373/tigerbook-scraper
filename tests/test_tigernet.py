@@ -71,6 +71,7 @@ def test_response_matching_checks_subject_id_not_stale_route_prefix():
 def test_browser_profile_captures_observed_responses_without_api_url_guessing(browser):
     context = browser.new_context()
     values = source()
+    values["base"]["photo_url"] = TARGET + "/synthetic-photo.png"
     paths = {
         "/private/frontoffice/users/profiles/1": values["base"],
         "/users/1/user_profiles/header_data": values["header"],
@@ -91,7 +92,10 @@ def test_browser_profile_captures_observed_responses_without_api_url_guessing(br
             script = ";".join(f"fetch({json.dumps(p)})" for p in paths)
             r.fulfill(
                 content_type="text/html; charset=utf-8",
-                body=f"<body>Synthetic 東京<script>{script}</script></body>",
+                body=(
+                    f'<body>Synthetic 東京<img src="{values["base"]["photo_url"]}">'
+                    f"<script>{script}</script></body>"
+                ),
             )
         elif path in paths:
             r.fulfill(content_type="application/json", body=json.dumps(paths[path]))
@@ -106,6 +110,8 @@ def test_browser_profile_captures_observed_responses_without_api_url_guessing(br
     ref = ProfileRef("1", TARGET + "/users/1")
     fields = adapter.profile(ref)
     assert fields["Custom/Brand new field"] == "東京"
+    assert fields["Profile/photo_url"] == TARGET + "/synthetic-photo.png"
+    assert "/synthetic-photo.png" not in visited
     assert adapter.audit(ref, fields)
     assert not adapter.field_coverage_verified
     assert set(paths).issubset(visited)
