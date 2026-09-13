@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 from .fields import csv_value, needs_text_import
-from .presentation import column_order, headings, spreadsheet_value
+from .presentation import KNOWN_FIELDS, readable_fields, spreadsheet_value
 from .state import State, now
 
 
@@ -15,14 +15,15 @@ def _export_csv(state: State, directory: Path, *, readable: bool) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
     keys = set()
     for _, _, fields in state.records():
-        keys.update(fields)
+        keys.update(readable_fields(fields) if readable else fields)
     # Source fields are namespaced so a real "profile_id" can never overwrite metadata.
-    keys = sorted(keys, key=column_order) if readable else sorted(keys)
-    headers = (
-        headings(keys)
-        if readable
-        else ["profile_id", "profile_url", *(f"field/{key}" for key in keys)]
-    )
+    if readable:
+        extras = sorted(keys - set(KNOWN_FIELDS), key=lambda key: (key.casefold(), key))
+        keys = [*KNOWN_FIELDS, *extras]
+        headers = ["Profile ID", "Profile URL", *keys]
+    else:
+        keys = sorted(keys)
+        headers = ["profile_id", "profile_url", *(f"field/{key}" for key in keys)]
     render = spreadsheet_value if readable else csv_value
     destination = directory / ("profiles.csv" if readable else "profiles.raw.csv")
     fd, temporary = tempfile.mkstemp(prefix=".profiles-", suffix=".tmp", dir=directory)
@@ -34,10 +35,11 @@ def _export_csv(state: State, directory: Path, *, readable: bool) -> dict:
             writer = csv.writer(handle)
             writer.writerow(headers)
             for profile_id, url, fields in state.records():
+                values_by_key = readable_fields(fields) if readable else fields
                 values = [
                     render(profile_id),
                     render(url),
-                    *(render(fields.get(key)) for key in keys),
+                    *(render(values_by_key.get(key)) for key in keys),
                 ]
                 text_sensitive += sum(needs_text_import(value) for value in values)
                 max_cell_characters = max(max_cell_characters, *(len(value) for value in values))
@@ -52,10 +54,11 @@ def _export_csv(state: State, directory: Path, *, readable: bool) -> dict:
             if next(reader) != headers:
                 raise ValueError("CSV header validation failed.")
             for profile_id, url, fields in state.records():
+                values_by_key = readable_fields(fields) if readable else fields
                 expected = [
                     render(profile_id),
                     render(url),
-                    *(render(fields.get(key)) for key in keys),
+                    *(render(values_by_key.get(key)) for key in keys),
                 ]
                 if next(reader, None) != expected:
                     raise ValueError("CSV record validation failed.")
@@ -84,6 +87,11 @@ def _export_csv(state: State, directory: Path, *, readable: bool) -> dict:
 def export_run(state: State, directory: Path) -> dict:
     raw = _export_csv(state, directory, readable=False)
     display = _export_csv(state, directory, readable=True)
+    known_values = {key: 0 for key in KNOWN_FIELDS}
+    for _, _, fields in state.records():
+        values = readable_fields(fields)
+        for key in KNOWN_FIELDS:
+            known_values[key] += bool(values[key])
     reasons = []
     counts = state.counts()
     if state.get("identity")["limit"] is not None:
@@ -111,7 +119,12 @@ def export_run(state: State, directory: Path) -> dict:
     report = {
         **display,
         "raw_export": {"file": "profiles.raw.csv", **raw},
-        "display_format": "labelled_multiline_v1",
+        "display_format": "known_fields_then_dynamic_v2",
+        "known_field_coverage": {
+            "required_columns": list(KNOWN_FIELDS),
+            "profiles_with_values": known_values,
+            "fields_without_values": [key for key, count in known_values.items() if count == 0],
+        },
         "status": "complete" if not reasons else "partial",
         "reasons": sorted(set(reasons)),
         "counts": counts,

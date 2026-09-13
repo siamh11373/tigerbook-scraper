@@ -15,6 +15,7 @@ Install Chromium with `python -m playwright install chromium`. Tests use invente
 | `test_fetch.py` | Login disguised as HTTP 200, bounded renewal/retries, Retry-After, failures, disposal, redirects and origin restrictions. |
 | `test_adapter.py` | Invented DOM/JSON listings, URL identity, pagination, dynamic fields, links/photos, repeated/nested values, structure failure and missing contract. |
 | `test_core.py` | Credential privacy, scope mismatch, overlapping pages, loop/stall detection, crash rollback, pending batches, dynamic union, Unicode/large cells, partial reporting. |
+| `test_presentation.py` | Required-field ordering, readable repeated jobs/schools, dynamic nested attributes, consolidated contact/community columns, raw companion fidelity, and deterministic output. |
 | `test_runner.py` | Equivalent resumed/uninterrupted records, completed profiles retained, sample limits, failed-profile retry and auth blockers. |
 | `test_cli.py` | Help, missing credentials, offline export without browser imports, single-writer lock. |
 | `test_fast.py` | Observed request templates, shared pacing/cooldown and concurrency cap, disposal, contact privacy, community pagination, cancellation, sample limits, and resume. |
