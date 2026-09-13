@@ -1,8 +1,10 @@
+import math
 import random
+import re
 import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from playwright.sync_api import Error as PlaywrightError
 
@@ -13,7 +15,8 @@ def retry_seconds(value: str | None) -> float | None:
     if value is None:
         return None
     try:
-        return max(0, float(value))
+        result = float(value)
+        return max(0, result) if math.isfinite(result) else None
     except ValueError:
         try:
             date = parsedate_to_datetime(value)
@@ -28,6 +31,7 @@ def login_response(url: str, body: str) -> bool:
     path = urlsplit(url).path.rstrip("/").lower()
     return (
         path.endswith(("/login", "/signin", "/sign-in"))
+        or bool(re.search(r"<input\b[^>]*type\s*=\s*['\"]password['\"]", body, re.I))
         or ('name="password"' in body and 'name="username"' in body)
         or ("central authentication service" in body.lower() and "password" in body.lower())
     )
@@ -55,6 +59,8 @@ class Fetcher:
         if (parsed.scheme, parsed.netloc) != (self.target.scheme, self.target.netloc):
             raise FetchError("Refusing a data request outside the configured target.")
         renewed = False
+        original_url = url
+        visited = {url}
         failures = 0
         while failures < self.attempts:
             self.pacer.wait()
@@ -65,11 +71,27 @@ class Fetcher:
                 status = response.status
                 body = response.text()
                 content_type = response.headers.get("content-type", "")
+                if status in (301, 302, 303, 307, 308):
+                    destination = urljoin(url, response.headers.get("location", ""))
+                    redirect = urlsplit(destination)
+                    if (redirect.scheme, redirect.netloc) == (
+                        self.target.scheme,
+                        self.target.netloc,
+                    ) and not login_response(destination, ""):
+                        if destination in visited or len(visited) >= 6:
+                            raise FetchError(
+                                "Data request redirects repeated or exceeded the limit."
+                            )
+                        visited.add(destination)
+                        url = destination
+                        continue
                 if status in (401, 301, 302, 303, 307, 308) or login_response(response.url, body):
                     if renewed:
                         raise AuthenticationError("Session could not be renewed unattended.")
                     self.reauthenticate()
                     renewed = True
+                    url = original_url
+                    visited = {url}
                     continue
                 if status == 403:
                     raise AccessBlocked("The server denied access. Collection stopped.")

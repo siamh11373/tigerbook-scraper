@@ -12,7 +12,7 @@ from .models import Fields
 def field_key(section: str, label: str) -> str:
     # JSON Pointer escaping prevents collisions with literal separators in labels.
     def escape(value: str) -> str:
-        return " ".join(value.split()).replace("~", "~0").replace("/", "~1")
+        return value.replace("~", "~0").replace("/", "~1")
 
     if not label.strip():
         raise ExtractionError("A profile value has no identifiable field label.")

@@ -104,3 +104,28 @@ def test_retry_date_and_invalid_values():
     assert retry_seconds("-1") == 0
     future = format_datetime(datetime.now(UTC) + timedelta(seconds=90))
     assert 88 <= retry_seconds(future) <= 90
+    assert retry_seconds("NaN") is None
+    assert retry_seconds("inf") is None
+
+
+def test_canonical_redirect_does_not_trigger_authentication():
+    redirect = Response(301, headers={"location": "/profile/1/"})
+    fetch, _, auth, request = client([redirect, Response()])
+    fetch.get(redirect.url)
+    assert request.calls == 2 and not auth
+    assert redirect.disposed
+
+
+def test_redirect_loop_is_bounded():
+    redirect = Response(302, headers={"location": "/profile/1"})
+    fetch, _, auth, request = client([redirect])
+    with pytest.raises(FetchError):
+        fetch.get(redirect.url)
+    assert request.calls == 1 and not auth
+
+
+def test_single_quoted_password_form_is_auth_failure():
+    form = Response(200, "<input type='password' name='secret'>")
+    fetch, _, auth, _ = client([form, Response()])
+    fetch.get(form.url)
+    assert len(auth) == 1

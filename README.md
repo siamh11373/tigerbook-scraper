@@ -1,72 +1,122 @@
-# TigerBook Directory Scraper
+# TigerNet directory scraper
 
-Project scaffold for an automated directory export tool. The intended result is a single-command run that authenticates through a supported method, discovers the permitted profile population, captures fields dynamically, and produces a validated UTF-8 CSV.
+A Python application for resumable, permitted directory collection and validated UTF-8 CSV export. The repository keeps the assessment's original TigerBook name; the author confirmed **https://tigernet.princeton.edu/** as the target and confirmed bulk collection and sharing permission.
 
-**Status: implementation in progress.** The persistence, retry, dynamic-field, and CSV-validation core is implemented and tested with synthetic data. The public TigerNet CAS login form has been inspected in a fresh browser. Authenticated directory compatibility and a live export remain unverified.
+**Status: core implementation and synthetic tests are available. Live collection is blocked on credential configuration and authenticated site inspection.** There is no verified production directory adapter, live CSV, or Google Sheet yet. Passing synthetic tests do not prove unattended TigerNet authentication or exhaustive coverage.
 
-## Start here
+The public login flow was inspected in a fresh browser on September 13, 2026. It leads to Princeton CAS at `https://fed.princeton.edu/cas/login`. No authenticated directory or profile endpoint has been guessed. Collection requires a parser contract established from actual authenticated observations.
 
-- [THINKING.md](THINKING.md): reserved for the author's direct thoughts and input.
-- [Discovery log](docs/EXPERIMENTS.md): prioritized experiments and a template for recording actual results.
-- [Source layout](src/README.md): proposed components and their responsibilities.
-- [Validation plan](tests/README.md): planned coverage and acceptance checks.
+## Installation
 
-## Prerequisites and installation
+Tested runtime: **Python 3.12.14**, macOS. The package requires Python 3.11 or newer; other versions and operating systems have not been rehearsed.
 
-Git is sufficient to clone and read the current scaffold. The runtime, dependency versions, and installation procedure will be selected after the discovery experiments.
-
-`requirements.txt` is a placeholder dependency manifest. It currently installs no application and does not represent a finalized language or library choice. If a different runtime is selected, replace it with that runtime's manifest.
-
-## Credentials
-
-Credential configuration is not implemented. The planned interface will read credentials from environment variables or an explicitly ignored local configuration file. Exact variable names and setup instructions must be documented when authentication is implemented.
-
-Never place credentials, MFA material, cookies, browser storage, or authentication traces in commits, issue reports, or AI prompts. A reusable session is sensitive even if it contains no password. Each operator must use an account authorized for the target service and purpose.
-
-## Running the scraper
-
-There is no runnable scraping command yet. Before claiming the implementation is ready, document and test the exact installation and single-command execution steps from a clean checkout with a fresh session.
-
-## Intended behavior and output
-
-1. Validate configuration and the permitted collection scope.
-2. Establish an authorized session without manual login or pasted cookies.
-3. Discover profile identifiers and persist collection progress.
-4. Fetch profiles at a conservative rate, capture fields dynamically, and record failures separately from missing values.
-5. Resume unfinished work without duplicating profiles.
-6. Validate coverage and generate a CSV plus a run report.
-
-The planned local output directory is `output/`, which Git ignores. The CSV should contain one row per stable profile identifier, deterministic columns covering all discovered fields, correctly escaped UTF-8 text, and empty cells for missing values. The report should distinguish a validated export from a partial or blocked run. Final filenames are still to be selected.
-
-Google Sheets upload is a manual delivery step. Verify import fidelity and share only with explicitly authorized recipients using approved storage. No live export or Sheet exists yet.
-
-## Architecture
-
-The proposed pipeline is configuration → authentication → discovery → durable work queue → throttled fetching → dynamic extraction → validation → CSV export. See [src/README.md](src/README.md) for the planned responsibilities. These components are a design sketch, not implemented modules.
-
-## Known limitations and open questions
-
-- The exact current target URL and eligible population still need confirmation.
-- Fresh unattended authentication, MFA behavior, and session renewal have not been tested.
-- Exhaustive profile enumeration, stable identifiers, pagination, and any result limits are unknown.
-- API availability, permission, freshness, and field coverage have not been verified.
-- No implementation, automated tests, full run, or completeness claim exists yet.
-- Collection and external sharing permission must be resolved before collecting a dataset.
-
-## Repository contents
-
-```text
-README.md             Project status and operator documentation
-THINKING.md           Author's direct thoughts and input
-requirements.txt      Placeholder dependency manifest
-.gitignore            Excludes credentials and local data artifacts
-docs/EXPERIMENTS.md    Discovery checklist and experiment records
-src/README.md         Proposed source responsibilities
-tests/README.md       Validation plan
+```bash
+git clone https://github.com/siamh11373/tigerbook-scraper.git
+cd tigerbook-scraper
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m playwright install chromium
 ```
 
-This public repository contains project-authored documentation and, as development proceeds, source code and synthetic tests. Keep confidential source documents, private reference libraries, real profiles, exports, and session artifacts local. Review staged changes before every commit; ignore rules alone are not a guarantee against accidental disclosure.
+Playwright is the only production dependency. SQLite and CSV handling use the standard library. pytest and Ruff are development dependencies. Direct dependency versions are pinned in `pyproject.toml`; `requirements.txt` installs the package and development extras. Editable installation makes `python -m tigerbook_scraper` available.
 
-## Development checks
+## Credentials and first live checkpoint
 
-For the current documentation scaffold, review links and run `git diff --check`. Application tests, formatting, linting, and type-check commands must be added when an implementation exists. Record actual check results rather than listing planned tests as passing.
+Set both `TIGERNET_USERNAME` and `TIGERNET_PASSWORD` in the process environment using local credential tooling. Alternatively, create the ignored `credentials.local.json` in the repository root and edit it locally:
+
+```json
+{"username": "", "password": ""}
+```
+
+Both environment variables take precedence when present. A partially configured environment is an error. Never put real values in commands saved to shell history, Git, screenshots, or AI prompts. Restrict the local file to your OS account, for example with `chmod 600 credentials.local.json` on macOS/Linux.
+
+The next available live command is:
+
+```bash
+python -m tigerbook_scraper --inspect
+```
+
+It starts a fresh browser context, drives the observed CAS form, and saves a small **private** inspection under `output/inspection/`. A directory link alone is not proof of authenticated access. Inspect protected content to establish the actual listing, profile structures, session behavior, and scope before implementing the final site contract. Inspection files can contain personal data or sensitive page state; keep them local.
+
+Human MFA, passkey, or security-key challenges cause an explicit blocker. The application does not bypass them, use pasted cookies, or reuse a saved browser session. An interactive login would still leave the assessment's unattended requirement unmet.
+
+See [site integration](docs/SITE-INTEGRATION.md) for the remaining work. Once that integration is verified, `--check-auth` checks a fresh session against a directory listing and an accessible profile. It currently requires the missing verified contract.
+
+## Operator commands
+
+These interfaces are implemented. **Network collection requires the verified site contract described above.**
+
+```bash
+# Full scope, resuming the same unfinished run
+python -m tigerbook_scraper
+
+# At most 25 successful profiles, isolated from the full run
+python -m tigerbook_scraper --limit 25
+
+# Regenerate and validate the full-run export without network or credentials
+python -m tigerbook_scraper --export-only
+
+# Regenerate the isolated sample export offline
+python -m tigerbook_scraper --limit 25 --export-only
+
+python -m tigerbook_scraper --help
+```
+
+`--output-dir` selects a separate run root. Use a directory outside the checkout, or inside an ignored directory. `--credentials-file` selects a private credential file. `--site-contract` selects reviewed parser configuration; the eventual default is `src/tigerbook_scraper/site_contract.json`, which does not exist yet.
+
+The full run uses `output/full/`; each limit uses `output/sample-N/`. A run cannot be reused with a different account, target, scope, limit, or parser contract. Choose a new output directory for a new collection. An OS lock prevents two writers from sharing a run. Interrupt with Ctrl+C, then restart the same command. Resumed runs authenticate in a new browser context. Failed profiles are retried on restart; completed profiles are retained.
+
+Exit codes: `0` means a validated complete collection or successful requested diagnostic; `2` means a valid but partial export; `3` means a blocker; `130` means interruption. Read `report.json` rather than relying on process termination as proof of completeness.
+
+## Persistence, retries, and fields
+
+The pipeline is authentication → discovery → SQLite work queue → fetching/extraction → reconciliation → CSV validation. Discovered IDs and the page checkpoint commit together. Profiles use stable source IDs, never names. Records are updated by ID; failed retrievals remain distinct from absent fields.
+
+Collection is sequential. Explicit data fetches and browser navigations are paced at one per second. Transient network errors, HTTP 429, and server errors receive up to four attempts with increasing delays and jitter. `Retry-After` is honored; waits above five minutes stop the run for later resumption. HTTP 403 and persistent rate limiting stop collection. Each expired-session operation allows one supported reauthentication. Structured responses are disposed after parsing.
+
+Browser-generated background requests need inspection before claiming a site-wide request rate. If they produce additional directory/profile calls, the final adapter must pace those too. Check this and stricter service limits before a full run.
+
+Field names come from the observed profile object or recognized section/label/value structures. There is no fixed profile-field list. Section/label separators are escaped; original labels are retained. Repeated and nested values use JSON inside CSV cells. Links and image URLs inside recognized fields are preserved. Unknown structures raise an extraction problem. Private or inaccessible fields are outside scope.
+
+## Export and evidence
+
+Each run directory contains:
+
+- `run.sqlite`: durable IDs, URLs, attempts, outcomes, fields, and checkpoints.
+- `profiles.csv`: deterministic columns and rows, one row per successfully extracted ID.
+- `report.json`: status, unresolved counts, source totals, audits, timing, CSV hash, import cautions, and partial-run reasons.
+
+CSV headers include `profile_id`, `profile_url`, and the sorted union of discovered field keys prefixed with `field/`. Missing values produce empty cells. CSV escaping preserves Unicode, commas, quotes, and multiline text. The exporter streams records and verifies every exported cell against SQLite before replacing the CSV atomically.
+
+A complete report requires finished discovery and reconciliation, enumeration evidence, matching accessible totals when available, consistent ID membership, no unresolved profiles, and field-coverage evidence plus sample checks. Limited runs are always partial. Empty populations require review. The observation of 131,892 members is a reference only; it is not an expected count in code.
+
+Coverage spans a collection window, not an atomic source snapshot. Membership changes produce a partial report. Sampling checks fidelity but does not prove enumeration. Repeating a parser is also insufficient: the site contract must reference independent profile-coverage inspection. Expired pagination cursors or changed parser contracts may require a new run after investigation.
+
+## Google Sheets and submission
+
+Upload the CSV manually to an approved destination. Google Sheets permits [up to 10 million cells or 18,278 columns](https://support.google.com/drive/answer/37603). The report includes required cells, columns, maximum cell length, and cells resembling formulas or numbers. Check current service limits before import. If the dataset does not fit, agree on an alternative instead of truncating it.
+
+Preserve values as text during import, including disabling conversion to numbers, dates, or formulas when offered. CSV quoting alone does not prevent formula evaluation or numeric conversion. Verify leading zeros, `+` prefixes, formula-like strings, dates, Unicode, and multiline values. Keep the CSV and database as the source of truth. The report leaves `manual_sheet_import_verified` false; a human must document import/sharing checks and provide the actual Sheet link.
+
+## Development and remaining acceptance work
+
+```bash
+python -m pytest
+ruff check .
+ruff format --check .
+git diff --check
+```
+
+Tests use invented profiles and intercepted traffic, with an unusable proxy preventing browser tests from reaching real services. See [test coverage](tests/README.md). No Princeton credentials are needed.
+
+Remaining live acceptance steps:
+
+1. Configure credentials and establish supported unattended login.
+2. Inspect permitted responses and implement the verified contract or necessary site-specific adapter changes.
+3. Validate a small authenticated export, compare varied profiles, and rehearse interruption/resume.
+4. Measure requests and elapsed time, estimate collection duration, then run the permitted collection.
+5. Audit coverage and field fidelity; rehearse installation plus fresh authentication from a new checkout.
+6. Manually import and verify the Sheet; provide verified repository and Sheet links.
+
+[THINKING.md](THINKING.md) is reserved for the author's direct thoughts. [The experiment log](docs/EXPERIMENTS.md) records factual experiments and AI assistance. Credentials, sessions, confidential assessments, local knowledge bases, real fixtures, databases, exports, and inspection files must remain outside the public repository. Review staged contents before every push; ignore rules alone do not guarantee privacy.

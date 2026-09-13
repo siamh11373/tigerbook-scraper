@@ -1,6 +1,6 @@
 # Discovery and experiment log
 
-Created 2026-09-09. The entries below are planned experiments. No live TigerBook experiments have been run during repository setup.
+Created 2026-09-09. The initial table preserves the planned experiments from repository setup. Dated observations below distinguish completed work from outstanding live checks.
 
 ## First two hours
 
@@ -50,8 +50,22 @@ Copy this template only when recording an actual experiment. Keep hypotheses, ob
 - Implemented transactional SQLite discovery checkpoints, stable-ID records, isolated scope/account identity, dynamic field storage, streamed CSV generation and readback, and a completion report.
 - Implemented rate pacing, bounded transient retries, Retry-After handling, one reauthentication per failed request, and response disposal.
 - Validation: 26 synthetic tests passed on Python 3.12.14. Ruff lint/format and Git whitespace checks passed.
+- Related commit: `7ca15ff` (durable collection state and validated CSV export), pushed to the existing repository.
 - Important distinction: these synthetic tests establish local behavior, not TigerNet compatibility or a complete live dataset.
 - AI contribution: Codex wrote the implementation and synthetic tests. THINKING.md remains author-provided text only.
+
+### CLI, browser tests, and recovery validation
+
+- Implemented the module CLI, sample/full state isolation, offline export, process locking, CAS form-origin checks, challenge detection, supported SSO renewal, private inspection, and collection orchestration.
+- Added generic DOM/JSON adapters that require observed site configuration. No production contract exists. Live discovery, API/display URL mapping, expanded sections, field coverage, and throughput remain unverified.
+- A login redirect or directory link is not accepted as authenticated content verification. The authentication diagnostic requires the observed listing and profile parser.
+- Failure encountered: mocked HTTP redirects allowed a test to load the public CAS page. Replaced those test redirects with intercepted navigations and configured an unusable proxy so accidental unmocked browser traffic fails closed. These are synthetic credentials and fixtures, not live authentication evidence.
+- Failure encountered: an HTML fixture omitted its UTF-8 charset and Chromium displayed mojibake. Corrected the fixture response charset. Unicode CSV readback also has independent coverage.
+- Review change: removed repeated whole-population counts from each profile iteration and added bounded pending batches with an indexed status lookup. A 301-record test checks that status updates do not skip records.
+- Review change: a repeated parser read only checks consistency. Completion additionally requires independent field-coverage evidence in the site contract. The repository does not claim that evidence exists.
+- Validation: 49 synthetic tests passed, including real Chromium with intercepted traffic, interruption/resume equivalence, injected checkpoint rollback, late fields, nested records, large cells, offline export, and safe authentication failures. Ruff lint/format and Git whitespace checks passed.
+- AI contribution: Codex implemented code/tests, investigated failures, reviewed the diff, and wrote operator documentation. This log reports that work; it is not the author's personal reflection. THINKING.md was unchanged.
+- Remaining blocker: local credentials are still unconfigured. No authenticated benchmark, small live export, full collection, or manually uploaded Sheet exists.
 
 ## Completed authenticated experiments
 

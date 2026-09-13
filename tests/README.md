@@ -1,32 +1,23 @@
-# Validation plan
+# Validation
 
-No application tests have been implemented or run. This file records planned checks, not passing results.
+```bash
+python -m pytest
+ruff check .
+ruff format --check .
+git diff --check
+```
 
-Use synthetic fixtures for public tests. Do not commit real profiles, copied personal details, credentials, cookies, or unsanitized network recordings.
+Install Chromium with `python -m playwright install chromium`. Tests use invented records and intercepted browser responses. An unusable local proxy prevents accidental unmocked browser traffic from reaching real services.
 
-## Planned cases
-
-| Area | Cases to verify |
+| Tests | Evidence |
 | --- | --- |
-| Authentication | Fresh unattended session; redirect to login disguised as a successful response; required human challenge; session loss. |
-| Discovery | Multiple pages; overlapping results; repeated continuation tokens; missing or expired cursors; capped results. |
-| Identity | Same ID encountered twice; two people with the same display name; missing stable identifier. |
-| Fields | New field appearing late; missing field; duplicate labels in separate sections; repeated values; unrecognized profile structure. |
-| CSV | Unicode; commas; quotes; embedded newlines; empty values; deterministic headers and row identity. |
-| Recovery | Timeout; rate-limit response; bounded retry exhaustion; interruption around a checkpoint; restart without missing or duplicate records. |
-| Coverage | Discovered IDs reconciled with stored and exported IDs; unresolved records force partial status. |
+| `test_auth.py` | CAS form and hidden fields, challenges, rejection, unexpected submission origin, SSO renewal. |
+| `test_fetch.py` | Login disguised as HTTP 200, bounded renewal/retries, Retry-After, failures, disposal, redirects and origin restrictions. |
+| `test_adapter.py` | Invented DOM/JSON listings, URL identity, pagination, dynamic fields, links/photos, repeated/nested values, structure failure and missing contract. |
+| `test_core.py` | Credential privacy, scope mismatch, overlapping pages, loop/stall detection, crash rollback, pending batches, dynamic union, Unicode/large cells, partial reporting. |
+| `test_runner.py` | Equivalent resumed/uninterrupted records, completed profiles retained, sample limits, failed-profile retry and auth blockers. |
+| `test_cli.py` | Help, missing credentials, offline export without browser imports, single-writer lock. |
 
-## Acceptance evidence
+These checks do not establish TigerNet authentication, field coverage, exhaustive enumeration, live throughput, or a correct Google Sheets import.
 
-1. A clean installation follows the README successfully.
-2. A fresh session establishes access without human intervention through a supported method.
-3. Discovery exhausts the agreed scope using verified source behavior.
-4. Every discovered profile has an explicit outcome, with unresolved work reported.
-5. The export contains unique IDs and all captured field keys.
-6. A varied sample agrees with the permitted source representation.
-7. An interrupted synthetic run and an uninterrupted run produce equivalent records.
-8. A manual Google Sheets import preserves the values, including text that could be interpreted as formulas, dates, or numbers.
-
-Live validation depends on permission and an eligible account. Simulate failures locally instead of deliberately triggering production throttling or account lockouts.
-
-Add exact test, lint, formatting, and type-check commands here and in the README when the runtime and implementation are selected.
+Before a full run, perform a small authenticated export and interruption/resume rehearsal. Afterward, reconcile ID sets/totals for the same scope, independently review varied profiles, and verify manual import. Record actual results in `docs/EXPERIMENTS.md` without personal data or secrets.

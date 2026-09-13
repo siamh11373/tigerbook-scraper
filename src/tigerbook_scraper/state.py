@@ -35,6 +35,7 @@ class State:
             CREATE TABLE IF NOT EXISTS membership(
                 phase TEXT NOT NULL, id TEXT NOT NULL REFERENCES profiles(id),
                 PRIMARY KEY(phase, id));
+            CREATE INDEX IF NOT EXISTS profiles_status_id ON profiles(status,id);
         """)
         stored = self.get("identity")
         if stored is None:
@@ -131,10 +132,15 @@ class State:
         return result
 
     def pending(self):
-        for row in self.db.execute(
-            "SELECT id,url FROM profiles WHERE status='pending' ORDER BY id"
-        ):
-            yield ProfileRef(row[0], row[1])
+        after = ""
+        while rows := self.db.execute(
+            "SELECT id,url FROM profiles WHERE status='pending' AND id>? ORDER BY id LIMIT 100",
+            (after,),
+        ).fetchall():
+            # Materialize a bounded batch before updating the status index.
+            after = rows[-1][0]
+            for row in rows:
+                yield ProfileRef(row[0], row[1])
 
     def retry_failed(self) -> None:
         with self.db:

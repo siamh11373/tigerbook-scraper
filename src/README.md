@@ -1,32 +1,18 @@
-# Proposed source responsibilities
+# Source layout
 
-No scraper modules exist yet. Keep the eventual implementation small and separate these responsibilities where useful:
-
-| Component | Responsibility |
+| Module | Responsibility |
 | --- | --- |
-| Command/configuration | Validate inputs, initialize the run, and report an accurate exit status. |
-| Authentication | Establish and renew an authorized session; distinguish an interactive challenge from success. |
-| Discovery | Follow observed, permitted listing mechanisms; persist unique profile IDs and pagination progress. |
-| Fetching | Apply rate limits, timeouts, bounded retries, and response validation. |
-| Extraction | Capture discovered fields from recognized profile structures without a fixed field allowlist. |
-| State | Persist work status and records; make retries and restart processing safe. |
-| Validation/export | Reconcile IDs and outcomes, assemble the union of fields, and write the CSV and coverage report. |
+| `__main__.py`, `config.py`, `locking.py` | CLI, credentials, isolated scopes, single-writer lock, safe reporting. |
+| `auth.py` | Observed CAS form, submission-origin checks, challenges, SSO renewal. |
+| `inspection.py` | Bounded private capture for authenticated site discovery. |
+| `adapter.py` | Structured/rendered listing and profile parsing. Production contract remains missing. |
+| `fetch.py` | Pacing, bounded retries, Retry-After, session-loss detection, response disposal. |
+| `runner.py` | Discovery/reconciliation, profile processing, audits, progress and timing. |
+| `state.py`, `models.py` | Transactional SQLite queue, identity, IDs, attempts, outcomes and records. |
+| `fields.py` | Dynamic keys, repeated/nested values, CSV cell encoding. |
+| `export.py` | Field union, deterministic CSV, streaming readback, atomic replacement, coverage report. |
+| `errors.py` | Categorical errors that avoid exposing secrets or personal data. |
 
-## Data flow
+The pipeline is authentication → discovery → durable queue → extraction → reconciliation → validated export. SQLite stores source records before export so late fields can appear in a consistent schema.
 
-Configuration → authentication → profile discovery → durable queue → fetching → extraction → stored records → validation → CSV and run report.
-
-Discovery and profile processing both checkpoint progress. A page's discovered IDs must be stored before, or atomically with, advancing its discovery checkpoint.
-
-## Provisional data decisions
-
-- Prefer a verified stable source identifier; otherwise investigate canonical profile URLs. Do not deduplicate by name.
-- Store variable profile fields as a map, preserving original labels and enough section context to avoid collisions.
-- Distinguish an absent value from a fetch or parsing failure.
-- Preserve repeated values with a reversible encoding.
-- Generate headers from the union of successfully extracted fields after collection.
-- Consider local SQLite for durable state if the selected runtime supports it simply.
-- Start with sequential, conservatively throttled work. Add concurrency only if evidence justifies it.
-- Treat unfinished profiles and discovery failures as a partial run, not a complete export.
-
-These decisions remain subject to observations recorded in [THINKING.md](../THINKING.md) and the [discovery log](../docs/EXPERIMENTS.md).
+Site integration remains blocked on authenticated observations. Generic adapters and synthetic tests exist; live compatibility is not established. See [the integration checkpoint](../docs/SITE-INTEGRATION.md).

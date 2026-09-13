@@ -2,6 +2,7 @@ import csv
 import hashlib
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -20,6 +21,7 @@ def export_run(state: State, directory: Path) -> dict:
     destination = directory / "profiles.csv"
     fd, temporary = tempfile.mkstemp(prefix=".profiles-", suffix=".tmp", dir=directory)
     text_sensitive = 0
+    max_cell_characters = 0
     rows = 0
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
@@ -28,11 +30,13 @@ def export_run(state: State, directory: Path) -> dict:
             for profile_id, url, fields in state.records():
                 values = [profile_id, url, *(csv_value(fields.get(key)) for key in keys)]
                 text_sensitive += sum(needs_text_import(value) for value in values)
+                max_cell_characters = max(max_cell_characters, *(len(value) for value in values))
                 writer.writerow(values)
                 rows += 1
             handle.flush()
             os.fsync(handle.fileno())
         # Stream a readback against the database; verify each value and ID, not just counts.
+        csv.field_size_limit(sys.maxsize)
         with open(temporary, encoding="utf-8", newline="") as handle:
             reader = csv.reader(handle)
             if next(reader) != headers:
@@ -84,10 +88,16 @@ def export_run(state: State, directory: Path) -> dict:
         "csv_roundtrip_verified": True,
         "csv_sha256": digest.hexdigest(),
         "text_sensitive_cells": text_sensitive,
+        "max_cell_characters": max_cell_characters,
         "sheet_cells_required": (rows + 1) * len(headers),
         "fits_google_sheets_10m_cells": (rows + 1) * len(headers) <= 10_000_000,
         "manual_sheet_import_verified": False,
         "scope": state.get("identity")["scope"],
+        "benchmark": state.get("benchmark"),
+        "audited_profiles": state.get("audit_count", 0),
+        "observed_totals": {
+            phase: state.get(f"total:{phase}") for phase in ("discovery", "reconciliation")
+        },
         "snapshot_semantics": "collection_window_not_an_atomic_source_snapshot",
     }
     report_path = directory / "report.json"

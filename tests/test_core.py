@@ -185,3 +185,25 @@ def test_new_profile_in_reconciliation_is_pending(state):
     state.save_page("reconciliation", None, listing("1", "2"))
     assert [ref.id for ref in state.pending()] == ["2"]
     assert state.membership_differences() == 1
+
+
+def test_large_values_and_original_labels_survive_export(state, tmp_path):
+    state.save_page("discovery", None, listing("1"))
+    large = "東京" * 100_000
+    fields = from_pairs([("Section", "Label  with  spaces", large)])
+    state.complete("1", fields)
+    report = export_run(state, tmp_path / "out")
+    assert report["max_cell_characters"] == len(large)
+    assert report["csv_roundtrip_verified"]
+    assert "Section/Label  with  spaces" in fields
+
+
+def test_status_updates_do_not_skip_pending_batches(state):
+    ids = [f"{i:04d}" for i in range(301)]
+    state.save_page("discovery", None, listing(*ids))
+    processed = []
+    for ref in state.pending():
+        state.complete(ref.id, {"Name": "Synthetic"})
+        processed.append(ref.id)
+    assert processed == ids
+    assert state.counts()["complete"] == 301
