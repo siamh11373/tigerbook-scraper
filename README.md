@@ -76,6 +76,20 @@ With `--allow-interactive`, a visible browser waits up to five minutes for you t
 
 See [site integration](docs/SITE-INTEGRATION.md) for the remaining work. `--check-auth` checks a fresh session against a directory listing and an accessible profile. It requires a local site contract, which is not distributed in this repository.
 
+### Bounded performance comparison
+
+`python -u -m tigerbook_scraper.performance_probe` uses one attended login and three
+saved profiles to compare browser `fetch()` at concurrency 1 and 3 with request-context
+fetches at concurrency 1. Each condition spaces starts by at least 0.5 seconds and runs
+sequentially. Ordinary page loading establishes observed requests first. The probe stops
+on blocked comparison responses, keeps bodies and authentication in memory, and writes
+only diagnostic counts and schema keys to ignored `output/performance-probe/report.json`.
+Embedded JSON/JavaScript decoding never executes extracted script text. Script keyword
+hints and repeated values do not establish a batch interface or removable request.
+The small benchmark does not establish sustained throughput or exhaustive field coverage.
+Ordinary browser background traffic is not included in the timing counters, so the stated
+pacing applies to the explicitly compared requests, not every request made by the browser.
+
 ## Operator commands
 
 These interfaces are implemented. **Network collection requires the verified site contract described above.**
@@ -124,6 +138,21 @@ python -m tigerbook_scraper --fast --export-only
 Fast mode starts at 2 requests/second. After each 100 consecutive successful responses it adds 2 requests/second, up to the default ceiling of 6. The ceiling follows live evidence from both one-session and two-session runs: 20/s caused a large 429 burst, while the two-session run processed cleanly through 6/s and triggered persistent throttling after reaching 8/s. Transient network or server failures reset the success streak and reduce the rate by 20 percent. HTTP 429 halves the rate and applies a global `Retry-After` cooldown. Concurrent 429 responses in the same 30-second cooldown epoch extend the pause without repeatedly halving the rate. Persistent throttling and HTTP 403 stop collection. All requests and workers share the same pacing gate. In-flight requests are capped independently by `--workers` (default and maximum 32); fast collection schedules roughly one profile worker per five request slots because each profile needs five base requests. Individual fetch and extraction failures are saved against their profile IDs while the remaining queue continues. These rates are operator limits based on limited live evidence, not a documented TigerNet service limit.
 
 Use `--requests-per-second` to change the starting rate and `--max-requests-per-second` to change the ceiling. The implementation rejects a maximum above 50 requests/second and a starting rate above the maximum.
+
+After a 429, the recovery gate drains admitted requests, observes the shared cooldown,
+and permits only one recovery request. A successful recovery response reopens normal
+paced admission; older in-flight successes cannot reopen it. Cancellation releases its
+request lease so the queue does not deadlock.
+
+Fast collection also saves successful base response sections in a new private SQLite
+table, `profile_sections_v1`, within the existing run database. On an interrupted-profile
+retry, it re-fetches base identity/privacy metadata and discards cached sections if that
+response changed. Otherwise it fetches missing sections and applies normal field filtering
+to the assembled record. The cache expires as a whole after one hour and is cleared after
+successful record storage or an extraction error. Extra community pages are still fetched
+normally. This reduces repeated work; it does not remove fields or reduce the five base
+requests for a new profile. Cached field-level permissions can change independently of
+base metadata, so this provides bounded staleness, not a source-consistent snapshot.
 
 `--browser-sessions 2` authenticates two independent browser sessions sequentially, then assigns each numeric profile ID deterministically to one of two isolated request contexts. One process retains the run lock, discovery checkpoint, SQLite writer, deduplication, and final export. Both sessions share one adaptive request-rate controller, one worker limit, and one global cooldown: the configured rates and workers are totals, and a 429 from either session pauses both. Compare its measured throughput with a one-session run to see whether an additional authenticated session helps; that comparison cannot prove whether TigerNet limits by session, account, or IP. Either session may require renewed MFA. The maximum is two sessions until live evidence establishes session behavior.
 

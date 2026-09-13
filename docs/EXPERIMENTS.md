@@ -197,3 +197,35 @@ directory integration remain unverified at that checkpoint. These changes remain
 - The database is opened read-only. No raw HTML, credentials, or session state is saved;
   the local ignored report contains counts and missing field labels. Synthetic tests cover
   empty shells, escaped JSON Unicode, repeated records, and false completeness claims.
+### Parallel performance investigations with one live request stream
+
+- Offline work ran in parallel on embedded-state recognition, response-section persistence,
+  and recovery admission. Live experiments used one fresh attended browser session at a time.
+  An initial route callback bug was corrected and regression-tested before collecting results.
+- The first completed comparison had unequal pacing semantics and is not speedup evidence.
+  In the corrected comparison, each five-response group used a minimum 0.5-second interval
+  between starts. Request-context times were 2.547, 2.610, and 2.862 seconds. Browser fetch
+  at concurrency 1 took 2.546, 2.631, and 2.737 seconds; concurrency 3 took 2.443, 2.562,
+  and 2.672 seconds. All 45 explicit comparison responses returned 200. These are tiny
+  groups; browser background traffic was not measured and no sustained rate was established.
+- Body, header, topics, and badges payloads matched the ordinary browser capture exactly.
+  Base differences involved cover_picture_url/new_cover_picture, plus new_photo on one
+  sample. Parsed fields matched for the one sample with a successful baseline extraction
+  (49 fields). The other two baseline extractions did not validate, so all-field equivalence
+  remains unproven. The production transport and its five response sources are retained.
+- The extended safe decoder found zero embedded object candidates in all three HTML pages.
+  Static script keyword analysis found possible batch/related-data hints but no confirmed
+  permitted batch interface. Keyword matches are not endpoints and none were guessed or called.
+- Listing responses include basic identity/display data but do not establish equivalence to
+  the base response's privacy/contact permission checks. The responses contained distinct
+  structures; neither overlap counts nor empty badge samples justify dropping a request.
+  Community details already accompany memberships, so a shared metadata cache would save
+  no current network requests. Neither optimization was enabled without field equivalence.
+- Added a shared recovery gate: drain admitted requests after 429, wait out cooldown, then
+  permit exactly one probe. Old successes cannot reopen the queue, and cancellation releases
+  ownership. Added a private one-hour section cache with fresh base recheck and whole-profile
+  invalidation on base changes. Synthetic interruption tests reuse four saved sections while
+  fetching fresh base plus the missing section. Privacy filtering still runs; field-level
+  source changes within the cache age remain a documented consistency limitation.
+- No full collection was launched by these experiments. THINKING.md was unchanged. Real
+  credentials, sessions, response bodies, records, databases, and reports were not published.

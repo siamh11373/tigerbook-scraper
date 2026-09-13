@@ -24,6 +24,8 @@ from .errors import (
 from .fetch import login_response, retry_seconds
 from .fields import from_mapping
 from .models import ListingPage, ProfileRef
+from .recovery_gate import RecoveryGate
+from .section_cache import SectionCache
 from .tigernet import page_url, response_kind
 from .tigernet_fields import extract_profile
 
@@ -197,12 +199,16 @@ class Client:
         workers=8,
         *,
         slots=None,
+        recovery=None,
+        admission=None,
         attempts=4,
         operation_timeout=35,
         disposal_timeout=5,
     ):
         self.request, self.throttle = request, throttle
         self.slots = asyncio.Semaphore(workers) if slots is None else slots
+        self.recovery = RecoveryGate() if recovery is None else recovery
+        self.admission = asyncio.Lock() if admission is None else admission
         self.attempts = attempts
         self.operation_timeout = operation_timeout
         self.disposal_timeout = disposal_timeout
@@ -213,10 +219,14 @@ class Client:
         url = target_url(url)
         for attempt in range(self.attempts):
             response = None
+            lease = None
+            succeeded = False
             delay = 2**attempt + random.random()
             try:
                 async with self.slots:
-                    await self.throttle.wait()
+                    async with self.admission:
+                        await self.throttle.wait()
+                        lease = await self.recovery.enter()
                     async with asyncio.timeout(self.operation_timeout):
                         response = await self.request.get(
                             url,
@@ -238,6 +248,7 @@ class Client:
                             delay = max(delay, requested)
                         if status == 429:
                             self.throttle.cooldown(delay)
+                            self.recovery.block(delay)
                         else:
                             self.throttle.failure()
                         if delay > 300 or (status == 429 and attempt == self.attempts - 1):
@@ -254,6 +265,7 @@ class Client:
                         except ValueError:
                             raise ExtractionError("Observed response was not valid JSON.") from None
                         self.throttle.success()
+                        succeeded = True
                         return value
             except PlaywrightError:
                 self.throttle.failure()
@@ -264,28 +276,63 @@ class Client:
                 if attempt == self.attempts - 1:
                     raise FetchError("Request operation timed out after bounded retries.") from None
             finally:
-                if response is not None:
-                    try:
-                        async with asyncio.timeout(self.disposal_timeout):
-                            await response.dispose()
-                    except (TimeoutError, PlaywrightError):
-                        pass
+                try:
+                    if response is not None:
+                        try:
+                            async with asyncio.timeout(self.disposal_timeout):
+                                await response.dispose()
+                        except (TimeoutError, PlaywrightError):
+                            pass
+                finally:
+                    if lease is not None:
+                        if lease.probe and not succeeded:
+                            self.recovery.block(delay)
+                        self.recovery.finish(lease, success=succeeded)
             await asyncio.sleep(delay)
         raise FetchError("Direct-request attempts exhausted.")
 
 
 class DirectProfiles:
-    def __init__(self, client, templates, base_keys):
+    def __init__(self, client, templates, base_keys, cache=None):
         self.client, self.templates, self.base_keys = client, templates, base_keys
+        self.cache = cache
 
     async def profile(self, ref):
+        try:
+            return await self._profile(ref)
+        except ExtractionError:
+            self.discard(ref.id)
+            raise
+
+    def discard(self, profile_id):
+        if self.cache is not None:
+            self.cache.discard(profile_id)
+
+    async def _profile(self, ref):
         if not ref.id.isdecimal():
             raise ExtractionError("Observed TigerNet profile ID must be numeric.")
         kinds = sorted(KINDS)
         urls = {key: self.templates[key]["url"].replace("{profile_id}", ref.id) for key in kinds}
-        values = await together(
-            self.client.get(urls[key], self.templates[key]["headers"]) for key in kinds
-        )
+        cached = self.cache.load(ref.id) if self.cache is not None else {}
+        if cached:
+            # Recheck current identity/privacy before reusing short-lived response bodies.
+            base = await self.client.get(urls["base"], self.templates["base"]["headers"])
+            if base != cached.get("base"):
+                self.cache.discard(ref.id)
+                cached = {}
+            cached["base"] = base
+            if isinstance(base, dict):
+                self.cache.put(ref.id, "base", base)
+
+        async def get_section(key):
+            if key in cached:
+                return cached[key]
+            value = await self.client.get(urls[key], self.templates[key]["headers"])
+            if self.cache is not None and isinstance(value, dict):
+                self.cache.put(ref.id, key, value)
+            return value
+
+        values = await together(get_section(key) for key in kinds)
         payloads = dict(zip(kinds, values, strict=True))
         if not all(isinstance(value, dict) for value in values):
             raise ExtractionError("An observed profile response changed its object structure.")
@@ -354,6 +401,9 @@ class SessionPool:
 
     async def profile(self, ref):
         return await self.profiles[int(ref.id) % len(self.profiles)].profile(ref)
+
+    def discard(self, profile_id):
+        self.profiles[int(profile_id) % len(self.profiles)].discard(profile_id)
 
 
 def stabilize_base_keys(setups, saved=None):
@@ -476,6 +526,9 @@ async def collect_direct(
                 try:
                     fields = await profiles.profile(ref)
                     state.complete(ref.id, fields)
+                    discard = getattr(profiles, "discard", None)
+                    if discard is not None:
+                        discard(ref.id)
                     counts["complete"] += 1
                 except (FetchError, ExtractionError) as error:
                     state.fail(ref.id, error.code)
@@ -569,12 +622,17 @@ async def session_run(
                 )
             shared_throttle = Throttle(start_rate, ceiling)
             shared_slots = asyncio.Semaphore(workers)
+            shared_recovery = RecoveryGate()
+            shared_admission = asyncio.Lock()
+            section_cache = SectionCache(state.db)
             clients = [
                 Client(
                     request,
                     shared_throttle,
                     workers,
                     slots=shared_slots,
+                    recovery=shared_recovery,
+                    admission=shared_admission,
                 )
                 for request in requests
             ]
@@ -625,6 +683,9 @@ async def session_run(
                 )
             state.note("fixed_base_fields", sorted(setups[0]["base_keys"]))
             state.note("field_fidelity_verified", False)
+            # Startup comparisons stay fresh; only queue collection uses cached sections.
+            for profiles in profile_sources:
+                profiles.cache = section_cache
             effective = dict(contract)
             effective["listing_url"] = state.get("fast_listing_url")
             if effective["listing_url"] is None:
