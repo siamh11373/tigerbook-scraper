@@ -24,7 +24,7 @@ def parser():
     value.add_argument(
         "--requests-per-second",
         type=float,
-        help="Fast-mode starting request rate (default 20/s)",
+        help="Fast-mode starting request rate (default 2/s)",
     )
     value.add_argument(
         "--max-requests-per-second",
@@ -62,7 +62,7 @@ def main(argv=None) -> int:
             if args.workers is None:
                 args.workers = 32
             if args.requests_per_second is None:
-                args.requests_per_second = 20.0
+                args.requests_per_second = 2.0
             if args.max_requests_per_second is None:
                 args.max_requests_per_second = 40.0
             if args.inspect or args.check_auth:

@@ -153,8 +153,8 @@ directory integration remain unverified at that checkpoint. These changes remain
 
 ### Higher adaptive starting rate
 
-- The author requested starting at 20 requests/second and scaling upward when no problems occur. Fast mode now defaults to 20/s with 32 in-flight request slots and a 40/s ceiling.
-- The global gate increases by 2/s after 2,000 consecutive successful responses. A transient network or server failure resets that streak and reduces the rate by 20 percent. HTTP 429 halves the rate and applies the shared cooldown. The configurable hard maximum is 50/s.
+- The author requested starting at 20 requests/second and scaling upward when no problems occur. The initial fast-rate version defaulted to 20/s with 32 in-flight request slots and a 40/s ceiling.
+- At that checkpoint, the global gate increased by 2/s after 2,000 consecutive successful responses. A transient network or server failure reset that streak and reduced the rate by 20 percent. HTTP 429 halved the rate and applied the shared cooldown. The configurable hard maximum was 50/s.
 - These are client-side limits, not evidence of a supported TigerNet rate. The first live run must establish actual throughput and throttling behavior. Checkpointing and explicit partial reports remain unchanged.
 
 ### Fast startup failure and route correction
@@ -162,3 +162,11 @@ directory integration remain unverified at that checkpoint. These changes remain
 - The first full fast run stopped before discovery with `unrecognized_profile`. Its local report contained zero discovered and completed profiles, so the adaptive request-rate collection had not begun.
 - Review found that body and community request templates replaced both numeric user path segments. The first segment identifies the signed-in viewer; only the second identifies the target profile. The template now preserves the observed viewer ID.
 - An incompatible startup profile is now skipped while the remainder of the first listing page is tried. Direct/browser differences and individual extraction failures are recorded locally and produce a partial report, while collection continues. Authentication denial, persistent throttling, and an unusable request shape still stop because continuing cannot produce authorized records.
+
+### First full-run extraction benchmark
+
+- Discovery reached 131,890 unique accessible IDs against a displayed total of 131,892. Extraction then produced an initial group of completed profiles but appeared idle while 32 profile workers each queued five requests behind 32 request slots.
+- The live aggregate showed 155 HTTP 429 responses. The prior controller halved the rate for every concurrent 429 in the burst, reducing 20/s to the 0.25/s floor. At that rate, five base requests for each remaining profile would take about 30 days before retries or additional community pages.
+- The controller now applies at most one multiplicative reduction per fixed 30-second throttling epoch. Later 429s extend the shared cooldown without rolling that reduction window forward. Request/body operations and response cleanup add caller-side timeouts, while Playwright's driver remains the transport boundary. Profile concurrency is derived from the five-request fanout, and an independent heartbeat exposes retry progress.
+- The evidence-based restart begins at 2/s and adds 2/s after every 100 clean responses, up to 40/s. This replaces the rejected 20/s starting assumption while allowing rapid measured recovery toward a rate TigerNet accepts.
+- Multiple scraper processes were rejected at this checkpoint. They would contend for the same observed service limit, require multiple authenticated sessions, and cannot safely write the same SQLite queue. True sharding would require a frozen ID manifest, isolated shard databases, a shared aggregate rate budget, and a verified merge.

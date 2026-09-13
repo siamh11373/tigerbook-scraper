@@ -88,14 +88,14 @@ Exit codes: `0` means a validated complete collection or successful requested di
 `--fast` still scrapes the directory. It uses normal browser authentication, captures the actual GET requests for up to three profiles, and compares direct responses against their rendered reference records before continuing. An incompatible startup profile is skipped while other results are tried. A comparison difference is recorded in the partial report instead of terminating collection. After startup, the browser closes and profile fetching uses concurrent requests. Credentials, session cookies, and observed authorization headers stay in process memory and are never written to Git, configuration, or run reports. If the session expires, normal browser authentication reopens; repeated renewal failures without collection progress stop the run.
 
 ```bash
-# Full request-based collection: start at 20/s and scale to 40/s
+# Full request-based collection: start at 2/s and scale to 40/s
 python -m tigerbook_scraper.local_env --fast --allow-interactive
 
 # Regenerate the fast full-run export offline
 python -m tigerbook_scraper --fast --export-only
 ```
 
-Fast mode starts at 20 requests/second. After each 2,000 consecutive successful responses it adds 2 requests/second, up to the default ceiling of 40. Transient network or server failures reset the success streak and reduce the rate by 20 percent. HTTP 429 halves the rate and applies a global `Retry-After` cooldown; persistent throttling and HTTP 403 stop collection. All requests and workers share the same pacing gate. In-flight requests are capped independently by `--workers` (default and maximum 32). Individual fetch and extraction failures are saved against their profile IDs while the remaining queue continues. These rates are operator limits, not verified TigerNet service limits. No speed or same-day completion is claimed before live measurement.
+Fast mode starts at 2 requests/second. After each 100 consecutive successful responses it adds 2 requests/second, up to the default ceiling of 40. This lower start follows the first full-run evidence: beginning at 20/s triggered a large 429 burst. Transient network or server failures reset the success streak and reduce the rate by 20 percent. HTTP 429 halves the rate and applies a global `Retry-After` cooldown. Concurrent 429 responses in the same 30-second cooldown epoch extend the pause without repeatedly halving the rate. Persistent throttling and HTTP 403 stop collection. All requests and workers share the same pacing gate. In-flight requests are capped independently by `--workers` (default and maximum 32); fast collection schedules roughly one profile worker per five request slots because each profile needs five base requests. Individual fetch and extraction failures are saved against their profile IDs while the remaining queue continues. These rates are operator limits, not verified TigerNet service limits. No speed or same-day completion is claimed before live measurement.
 
 Use `--requests-per-second` to change the starting rate and `--max-requests-per-second` to change the ceiling. The implementation rejects a maximum above 50 requests/second and a starting rate above the maximum.
 
@@ -105,7 +105,7 @@ Fast output is isolated in `output/fast-full/`, or `output/fast-sample-N/` with 
 
 ## Persistence, retries, and fields
 
-The pipeline is authentication → discovery → SQLite work queue → fetching/extraction → reconciliation → CSV validation. Discovered IDs and the page checkpoint commit together. Profiles use stable source IDs, never names. Records are updated by ID; failed retrievals remain distinct from absent fields.
+The pipeline is authentication → discovery → SQLite work queue → fetching/extraction → reconciliation → CSV validation. Discovered IDs and the page checkpoint commit together. Profiles use stable source IDs, never names. Records are updated by ID; failed retrievals remain distinct from absent fields. Fast requests add a caller-side timeout around the request and response-body transfer, plus a bounded cleanup timeout; Playwright's own timeout and driver lifecycle remain the underlying transport boundary. A ten-second heartbeat reports progress even while a worker batch is retrying.
 
 The default browser mode is sequential. Explicit data fetches and browser navigations are paced at one per second. Fast mode uses the separate shared gate described above. Transient network errors, HTTP 429, and server errors receive up to four attempts with increasing delays and jitter. `Retry-After` is honored; waits above five minutes stop the run for later resumption. HTTP 403 and persistent rate limiting stop collection. Each expired-session operation allows one supported reauthentication. Structured responses are disposed after parsing.
 

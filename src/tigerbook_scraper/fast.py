@@ -143,14 +143,16 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
 class Throttle:
     """One shared request-start gate, with gradual ramp-up and global 429 cooldown."""
 
-    def __init__(self, start=20.0, ceiling=40.0, *, clock=time.monotonic, sleep=asyncio.sleep):
+    def __init__(self, start=2.0, ceiling=40.0, *, clock=time.monotonic, sleep=asyncio.sleep):
         if not 0 < start <= ceiling <= 50:
             raise ConfigurationError("Request rates must satisfy 0 < start <= maximum <= 50.")
         self.ceiling, self.rate = ceiling, start
         self.clock, self.sleep = clock, sleep
         self.next_at = self.blocked_until = 0.0
+        self.throttle_decrease_until = self.transient_decrease_until = 0.0
         self.lock = asyncio.Lock()
         self.starts = self.successes = self.throttles = self.transient_failures = 0
+        self.rate_decreases = 0
 
     async def wait(self):
         async with self.lock:
@@ -161,45 +163,68 @@ class Throttle:
 
     def success(self):
         self.successes += 1
-        if self.successes >= 2000:
+        if self.successes >= 100 and self.clock() >= self.throttle_decrease_until:
             self.rate = min(self.ceiling, self.rate + 2)
             self.successes = 0
 
     def failure(self):
         self.transient_failures += 1
         self.successes = 0
-        self.rate = max(0.25, self.rate * 0.8)
+        now = self.clock()
+        if now >= self.transient_decrease_until:
+            self.rate = max(0.25, self.rate * 0.8)
+            self.transient_decrease_until = now + 5
+            self.rate_decreases += 1
 
     def cooldown(self, seconds):
         self.throttles += 1
         self.successes = 0
-        self.rate = max(min(0.25, self.ceiling), self.rate / 2)
-        self.blocked_until = max(self.blocked_until, self.clock() + seconds)
+        now = self.clock()
+        if now >= self.throttle_decrease_until:
+            self.rate = max(min(0.25, self.ceiling), self.rate / 2)
+            self.rate_decreases += 1
+            self.throttle_decrease_until = now + max(30, seconds)
+        # Responses already in flight belong to the same throttling event. They
+        # extend the shared pause without repeatedly halving the rate.
+        self.blocked_until = max(self.blocked_until, now + seconds)
 
 
 class Client:
-    def __init__(self, request, throttle, workers=8):
+    def __init__(
+        self,
+        request,
+        throttle,
+        workers=8,
+        *,
+        attempts=4,
+        operation_timeout=35,
+        disposal_timeout=5,
+    ):
         self.request, self.throttle = request, throttle
         self.slots = asyncio.Semaphore(workers)
+        self.attempts = attempts
+        self.operation_timeout = operation_timeout
+        self.disposal_timeout = disposal_timeout
 
     async def get(self, url, headers=None):
         from playwright.async_api import Error as PlaywrightError
 
         url = target_url(url)
-        for attempt in range(4):
+        for attempt in range(self.attempts):
             response = None
             delay = 2**attempt + random.random()
             try:
                 async with self.slots:
                     await self.throttle.wait()
-                    response = await self.request.get(
-                        url,
-                        headers=headers or {"accept": "application/json"},
-                        timeout=30_000,
-                        max_redirects=0,
-                    )
-                    status = response.status
-                    body = await response.text()
+                    async with asyncio.timeout(self.operation_timeout):
+                        response = await self.request.get(
+                            url,
+                            headers=headers or {"accept": "application/json"},
+                            timeout=30_000,
+                            max_redirects=0,
+                        )
+                        status = response.status
+                        body = await response.text()
                     if status == 401 or 300 <= status < 400 or login_response(response.url, body):
                         raise AuthenticationError("Direct-request session needs browser renewal.")
                     if status == 403:
@@ -214,9 +239,9 @@ class Client:
                             self.throttle.cooldown(delay)
                         else:
                             self.throttle.failure()
-                        if delay > 300 or (status == 429 and attempt == 3):
+                        if delay > 300 or (status == 429 and attempt == self.attempts - 1):
                             raise AccessBlocked("Server throttling requires a later resume.")
-                        if attempt == 3:
+                        if attempt == self.attempts - 1:
                             raise FetchError("Server errors persisted after bounded retries.")
                     elif not 200 <= status < 300:
                         raise FetchError(f"Profile request failed with HTTP {status}.")
@@ -231,11 +256,19 @@ class Client:
                         return value
             except PlaywrightError:
                 self.throttle.failure()
-                if attempt == 3:
+                if attempt == self.attempts - 1:
                     raise FetchError("Network operation failed after bounded retries.") from None
+            except TimeoutError:
+                self.throttle.failure()
+                if attempt == self.attempts - 1:
+                    raise FetchError("Request operation timed out after bounded retries.") from None
             finally:
                 if response is not None:
-                    await response.dispose()
+                    try:
+                        async with asyncio.timeout(self.disposal_timeout):
+                            await response.dispose()
+                    except (TimeoutError, PlaywrightError):
+                        pass
             await asyncio.sleep(delay)
         raise FetchError("Direct-request attempts exhausted.")
 
@@ -304,17 +337,19 @@ class DirectProfiles:
 async def collect_direct(
     state, client, profiles, contract, *, limit=None, workers=8, progress=print
 ):
-    started, initial = time.monotonic(), state.counts()["complete"]
+    started = time.monotonic()
+    collection_started = None
+    collection_initial = state.counts()["complete"]
     counts = state.counts()
     last_notice = 0.0
 
     def notice(force=False):
         nonlocal last_notice
-        elapsed = time.monotonic() - started
+        elapsed = time.monotonic() - (collection_started or started)
         if not force and elapsed - last_notice < 10:
             return
         last_notice = elapsed
-        completed = counts["complete"] - initial
+        completed = counts["complete"] - collection_initial
         rate = completed / max(elapsed, 0.001)
         total = state.get("total:discovery")
         eta = (
@@ -336,9 +371,13 @@ async def collect_direct(
                 "request_starts": client.throttle.starts,
                 "http_429_count": client.throttle.throttles,
                 "transient_request_failures": client.throttle.transient_failures,
+                "rate_decreases": client.throttle.rate_decreases,
                 "current_requests_per_second": client.throttle.rate,
                 "maximum_requests_per_second": client.throttle.ceiling,
-                "interpretation": "includes discovery and collection; excludes browser startup",
+                "phase": "extraction" if collection_started is not None else "discovery",
+                "interpretation": (
+                    "profile timing begins when extraction starts; browser startup is excluded"
+                ),
             },
         )
 
@@ -383,6 +422,10 @@ async def collect_direct(
                 return
 
     async def pending():
+        nonlocal collection_started, collection_initial
+        if collection_started is None:
+            collection_started = time.monotonic()
+            collection_initial = counts["complete"]
         iterator = iter(state.pending())
         budget = None if limit is None else max(0, limit - counts["complete"])
 
@@ -410,6 +453,18 @@ async def collect_direct(
 
         await together(worker() for _ in range(workers))
 
+    stop_heartbeat = asyncio.Event()
+
+    async def heartbeat():
+        while True:
+            try:
+                await asyncio.wait_for(stop_heartbeat.wait(), timeout=10)
+                return
+            except TimeoutError:
+                counts.update(state.counts())
+                notice(force=True)
+
+    heartbeat_task = asyncio.create_task(heartbeat())
     try:
         for phase in ("discovery", "reconciliation"):
             if limit is not None and counts["complete"] >= limit:
@@ -419,6 +474,8 @@ async def collect_direct(
             await pending()
         state.note("field_fidelity_verified", False)
     finally:
+        stop_heartbeat.set()
+        await heartbeat_task
         notice(force=True)
 
 
@@ -460,7 +517,7 @@ async def session_run(
     *,
     limit=None,
     workers=32,
-    start_rate=20.0,
+    start_rate=2.0,
     ceiling=40.0,
     progress=print,
 ):
@@ -520,8 +577,17 @@ async def session_run(
             progress(
                 "Direct-request comparison passed. Enumerating and collecting the requested scope."
             )
+            # Each profile fans out to five base requests. Keep the profile queue
+            # close to the request-slot capacity instead of enqueuing 5x more work.
+            profile_workers = max(1, (workers + len(KINDS) - 1) // len(KINDS))
             await collect_direct(
-                state, client, profiles, effective, limit=limit, workers=workers, progress=progress
+                state,
+                client,
+                profiles,
+                effective,
+                limit=limit,
+                workers=profile_workers,
+                progress=progress,
             )
         finally:
             await request.dispose()
@@ -535,7 +601,7 @@ def collect_fast(
     allow_interactive=False,
     limit=None,
     workers=32,
-    start_rate=20.0,
+    start_rate=2.0,
     ceiling=40.0,
     progress=print,
 ):

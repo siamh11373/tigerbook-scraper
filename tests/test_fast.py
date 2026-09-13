@@ -12,6 +12,7 @@ from tigerbook_scraper.errors import (
     AuthenticationError,
     ConfigurationError,
     ExtractionError,
+    FetchError,
 )
 from tigerbook_scraper.fast import (
     Client,
@@ -65,18 +66,37 @@ def test_shared_gate_spaces_requests_and_honors_global_cooldown():
         await gate.wait()
         await gate.wait()
         assert clock[0] == 0.05
-        for _ in range(2000):
+        for _ in range(100):
             gate.success()
         assert gate.rate == 22.0
         gate.failure()
         assert gate.rate == pytest.approx(17.6)
         gate.cooldown(10)
+        gate.cooldown(10)
         await gate.wait()
         assert clock[0] >= 10.05 and gate.rate == pytest.approx(8.8)
-        assert gate.throttles == 1 and gate.transient_failures == 1
+        assert gate.throttles == 2 and gate.transient_failures == 1
+        assert gate.rate_decreases == 2
         assert gate.starts == 3
+        clock[0] = 31
+        for _ in range(100):
+            gate.success()
+        assert gate.rate == pytest.approx(10.8)
 
     asyncio.run(run())
+
+
+def test_throttle_burst_does_not_create_a_rolling_decrease_window():
+    clock = [0.0]
+    gate = Throttle(20, 40, clock=lambda: clock[0])
+    gate.cooldown(1)
+    assert gate.rate == 10
+    clock[0] = 29
+    gate.cooldown(1)
+    assert gate.rate == 10
+    clock[0] = 31
+    gate.cooldown(1)
+    assert gate.rate == 5
 
 
 class Response:
@@ -98,6 +118,7 @@ class Gate:
     ceiling = 1.0
     starts = throttles = 0
     transient_failures = 0
+    rate_decreases = 0
 
     async def wait(self):
         self.starts += 1
@@ -136,6 +157,51 @@ def test_request_failures_are_safe_and_responses_released(status, body, error):
         assert response.disposed
         if status == 429:
             assert gate.delay >= 301
+
+    asyncio.run(run())
+
+
+def test_request_operation_has_caller_side_timeout():
+    async def run():
+        async def never_returns(*args, **kwargs):
+            await asyncio.Event().wait()
+
+        gate = Gate()
+        client = Client(
+            SimpleNamespace(get=never_returns),
+            gate,
+            attempts=1,
+            operation_timeout=0.01,
+        )
+        with pytest.raises(FetchError, match="timed out"):
+            await client.get(TARGET + "/synthetic")
+        assert gate.transient_failures == 1
+
+    asyncio.run(run())
+
+
+def test_response_body_and_disposal_cannot_stall_request():
+    class SlowResponse(Response):
+        async def text(self):
+            await asyncio.Event().wait()
+
+        async def dispose(self):
+            await asyncio.Event().wait()
+
+    async def run():
+        response = SlowResponse()
+
+        async def get(*args, **kwargs):
+            return response
+
+        with pytest.raises(FetchError, match="timed out"):
+            await Client(
+                SimpleNamespace(get=get),
+                Gate(),
+                attempts=1,
+                operation_timeout=0.01,
+                disposal_timeout=0.01,
+            ).get(TARGET + "/synthetic")
 
     asyncio.run(run())
 
