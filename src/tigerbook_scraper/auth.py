@@ -24,7 +24,15 @@ def origin(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-def authenticate(page, credentials: Credentials, *, timeout=45.0) -> str:
+def authenticate(
+    page,
+    credentials: Credentials,
+    *,
+    timeout=45.0,
+    allow_interactive=False,
+    interactive_timeout=300.0,
+    progress=print,
+) -> str:
     """Return a candidate directory URL; the adapter must verify protected content.
 
     A new browser context is required on process startup. During renewal, CAS may
@@ -33,25 +41,42 @@ def authenticate(page, credentials: Credentials, *, timeout=45.0) -> str:
     try:
         page.goto(f"{TARGET}/login", wait_until="domcontentloaded", timeout=30_000)
         submitted = False
+        waiting_for_user = False
         deadline = time.monotonic() + timeout
+
+        def handle_challenge():
+            nonlocal waiting_for_user, deadline
+            if not allow_interactive:
+                raise InteractiveAuthenticationRequired(
+                    "Authentication requires an MFA interaction."
+                )
+            if not waiting_for_user:
+                waiting_for_user = True
+                deadline = time.monotonic() + interactive_timeout
+                page.bring_to_front()
+                progress(
+                    "Complete the MFA approval in the browser or on your device. "
+                    f"Waiting up to {interactive_timeout:g} seconds; do not enter codes in chat."
+                )
+
         while time.monotonic() < deadline:
             if any(
                 urlsplit(frame.url).hostname
                 and urlsplit(frame.url).hostname.endswith(".duosecurity.com")
                 for frame in page.frames
             ):
-                raise InteractiveAuthenticationRequired(
-                    "Authentication requires an MFA interaction."
-                )
+                handle_challenge()
+                page.wait_for_timeout(250)
+                continue
             try:
                 text = page.locator("body").inner_text(timeout=1500)
             except PlaywrightError:
                 time.sleep(0.25)
                 continue
             if CHALLENGE.search(text):
-                raise InteractiveAuthenticationRequired(
-                    "Authentication requires human verification."
-                )
+                handle_challenge()
+                page.wait_for_timeout(250)
+                continue
             if re.search(
                 r"invalid credentials|authentication failed|incorrect password|"
                 r"credentials.{0,20}(invalid|incorrect)",
@@ -95,6 +120,10 @@ def authenticate(page, credentials: Credentials, *, timeout=45.0) -> str:
                 submitted = True
             # Let the synchronous browser dispatcher handle navigation and frames.
             page.wait_for_timeout(250)
+        if waiting_for_user:
+            raise InteractiveAuthenticationRequired(
+                "Manual authentication did not complete within the allowed wait."
+            )
         raise AuthenticationError("An authenticated directory link could not be verified.")
     except PlaywrightError:
         # Playwright error messages can contain filled values, request URLs, or page text.

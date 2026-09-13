@@ -1,10 +1,14 @@
 # Authenticated integration checkpoint
 
-The public CAS form is observed. Authenticated directory structures are not. There is no `site_contract.json`, and collection stops explicitly. This is unfinished site integration, not a supported production adapter hidden behind optional setup.
+Attended login has now yielded two directory pages and three profile snapshots. A local `private/site-contract.json` records the observed listing URL. The TigerNet adapter is implemented and tested synthetically, but has not yet completed a live collection run. The contract and captured data remain local and are not distributed with the implementation.
+
+The adapter reads directory IDs from the observed structured listing, opens each observed canonical profile route, and captures the normal profile JSON responses. It handles community pagination, section-labelled fields, nested education/employment records, and privacy exclusions. The original generic DOM/JSON adapters described below remain separate alternatives.
+
+Outstanding issues include last-activity ordering (one duplicate across the first two pages), scope-filter semantics, independent field coverage, self-only fields, and additional badge pages. These prevent verified-complete reporting. The next checkpoint is a 15-profile attended run, not a full scrape.
 
 ## Next experiment
 
-After credentials are configured locally, run `python -m tigerbook_scraper --inspect`. It attempts CAS in a fresh browser context. If human MFA is required, record the unresolved unattended requirement and stop that attempt. A cached session cannot resolve it.
+Run `python -m tigerbook_scraper.local_env --limit 15 --allow-interactive`. Enter credentials privately and approve normal MFA. Attended authentication is now authorized by the author, while the deviation from the original assessment remains documented.
 
 If login reaches the directory, inspect protected content and a small, varied profile sample. Establish stable IDs/URLs, permitted visibility, pagination/caps, the meaning of totals, tabs or expandable sections, and requests per profile. Compare ordinary structured responses with fully rendered profiles.
 

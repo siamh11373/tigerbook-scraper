@@ -13,6 +13,11 @@ from .state import State
 def parser():
     value = argparse.ArgumentParser(description="Resumable TigerNet directory export")
     value.add_argument("--limit", type=int, help="Isolated reviewer run with at most N profiles")
+    value.add_argument(
+        "--allow-interactive",
+        action="store_true",
+        help="Open a visible browser and wait up to five minutes for your MFA approval",
+    )
     mode = value.add_mutually_exclusive_group()
     mode.add_argument("--export-only", action="store_true", help="Validate saved records offline")
     mode.add_argument(
@@ -23,9 +28,7 @@ def parser():
     )
     value.add_argument("--credentials-file", type=Path, default=Path("credentials.local.json"))
     value.add_argument("--output-dir", type=Path, default=Path("output"))
-    value.add_argument(
-        "--site-contract", type=Path, default=Path(__file__).with_name("site_contract.json")
-    )
+    value.add_argument("--site-contract", type=Path, default=Path("private/site-contract.json"))
     return value
 
 
@@ -60,10 +63,14 @@ def main(argv=None) -> int:
             if not args.inspect:
                 contract = load_contract(args.site_contract)
             with sync_playwright() as playwright:
-                browser = playwright.chromium.launch()
+                browser = playwright.chromium.launch(headless=not args.allow_interactive)
                 context = browser.new_context()
                 page = context.new_page()
-                directory_url = authenticate(page, credentials)
+
+                def login():
+                    return authenticate(page, credentials, allow_interactive=args.allow_interactive)
+
+                directory_url = login()
                 print(
                     "Login flow reached a directory link; protected content still needs checking."
                 )
@@ -71,8 +78,13 @@ def main(argv=None) -> int:
                     inspect_directory(page, directory_url, args.output_dir / "inspection")
                     print("Inspection saved locally under output-dir/inspection. Keep it private.")
                     return 0
-                fetcher = Fetcher(context.request, TARGET, lambda: authenticate(page, credentials))
-                adapter = SiteAdapter(page, fetcher, contract)
+                fetcher = Fetcher(context.request, TARGET, login)
+                if contract["mode"] == "tigernet":
+                    from .tigernet import TigerNetAdapter
+
+                    adapter = TigerNetAdapter(page, fetcher, contract)
+                else:
+                    adapter = SiteAdapter(page, fetcher, contract)
                 if args.check_auth:
                     listing = adapter.list_page(None)
                     if not listing.profiles:

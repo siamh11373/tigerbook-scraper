@@ -96,3 +96,44 @@ def test_form_action_cannot_send_credentials_to_unexpected_origin(browser):
     with pytest.raises(AuthenticationError, match="submission origin"):
         authenticate(context.new_page(), Credentials("synthetic", "test-only"), timeout=3)
     context.close()
+
+
+@pytest.mark.parametrize("complete", [True, False])
+def test_attended_mfa_waits_for_user_and_has_a_deadline(browser, complete):
+    context = browser.new_context()
+    context.route(
+        "**/*", lambda route: route.fulfill(content_type="text/html", body="Check your device")
+    )
+    page = context.new_page()
+    notices = []
+
+    def user_handoff(message):
+        notices.append(message)
+        if complete:
+            # Simulate a user completing MFA, not an automated MFA approval.
+            page.set_content('<a href="/synthetic-directory">Alumni Directory</a>')
+
+    if complete:
+        assert (
+            authenticate(
+                page,
+                Credentials("synthetic", "test-only"),
+                allow_interactive=True,
+                timeout=0.1,
+                interactive_timeout=1,
+                progress=user_handoff,
+            )
+            == "https://tigernet.princeton.edu/synthetic-directory"
+        )
+    else:
+        with pytest.raises(InteractiveAuthenticationRequired, match="allowed wait"):
+            authenticate(
+                page,
+                Credentials("synthetic", "test-only"),
+                allow_interactive=True,
+                timeout=0.1,
+                interactive_timeout=0.3,
+                progress=user_handoff,
+            )
+    assert len(notices) == 1
+    context.close()

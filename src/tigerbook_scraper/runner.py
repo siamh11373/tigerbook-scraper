@@ -56,7 +56,11 @@ def collect(adapter: Adapter, state: State, *, limit=None, progress=print) -> No
                     state.note(audit_key, False)
                 state.complete(ref.id, fields)
                 counts["complete"] += 1
-                state.note("field_fidelity_verified", state.get("audit_count", 0) > 0)
+                state.note(
+                    "field_fidelity_verified",
+                    state.get("audit_count", 0) > 0
+                    and getattr(adapter, "field_coverage_verified", True),
+                )
             except (AuthenticationError, AccessBlocked):
                 # Keep the current profile pending so a restarted run retries it.
                 raise
@@ -93,4 +97,4 @@ def collect(adapter: Adapter, state: State, *, limit=None, progress=print) -> No
     # Recover a crash after the last record committed but before its run flag did.
     counts = state.counts()
     if not counts["pending"] and not counts["failed"] and state.get("audit_count", 0) > 0:
-        state.note("field_fidelity_verified", True)
+        state.note("field_fidelity_verified", getattr(adapter, "field_coverage_verified", True))

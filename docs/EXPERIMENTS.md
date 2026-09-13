@@ -79,4 +79,42 @@ Copy this template only when recording an actual experiment. Keep hypotheses, ob
 
 ## Completed authenticated experiments
 
-None yet. Credentials are required before inspecting the directory and validating its extraction adapter.
+The author ran the local credential launcher and reported
+`interactive_authentication_required: Authentication requires an MFA interaction.`
+This establishes an interactive challenge in the observed flow, not verified
+directory access. No credential values were supplied to the agent.
+
+The author subsequently authorized attended authentication. Added an opt-in
+`--allow-interactive` mode: a visible browser waits up to five minutes for the user
+to complete normal MFA, then continues. The same policy applies to session renewal.
+Unattended mode still stops at a challenge. This changes the project requirement;
+it does not satisfy the original assessment's unattended-authentication requirement.
+
+Synthetic tests cover successful continuation after a simulated user handoff,
+bounded timeout, and the existing unattended rejection. Live attended login and
+directory integration remain unverified at that checkpoint. These changes remain local, with no push.
+
+### Attended directory inspection
+
+- The author's attended run produced local HTML, text, a screenshot, and eight JSON responses. Inspection artifacts were examined locally; no credential or profile values were printed in tool output or published.
+- The ordinary directory response contains 18 users and reports `total_items` of 131,892. The observed listing path is `/frontoffice/api/users`, with page/per-page parameters. Rendered links reference `/users/<numeric ID>`, and the UI exposes a Next page button.
+- The request carries location-related parameters, including exclusion of users without locations. The reported total is not yet proof that the listing includes every accessible profile; filter semantics and coverage require investigation.
+- Extended the private inspection to follow the observed Next page control and three observed profile links. It records per-stage timings and responses, without guessing profile API endpoints. Added exclusion of token-service JSON payloads from future captures.
+- Two synthetic inspection tests passed, including deduplicated sample links, pagination capture, and exclusion of token payloads. Ruff lint/format and whitespace checks passed.
+- The next live checkpoint requires rerunning the attended inspection because the previous process and its in-memory credentials have ended. Full profile field structure, API mapping, and exhaustive discovery remain unverified. No push or upload was performed.
+
+### Expanded inspection and observed adapter
+
+- The next attended run saved two directory pages and three detailed profile captures. The listing pages contain 35 unique IDs across 36 results, with ordering by `last_seen_at`. Earlier concern about a nonempty location parameter was imprecise: `query[last_location]` is the literal string `false`. The interaction with `include_users_with_no_locations=false` still needs scope verification.
+- Profiles use separate base, header, section/contact, badge, and followed-community responses. One profile has eight community memberships but only three were in its initial response. Native repeated records include ten employment records in one sample and four education records in another.
+- Implemented the observed hybrid adapter and a dynamic metadata-based field parser, preserving repeated record associations and skipping restricted fields. Unknown structures stop extraction. Community pages are followed and reconciled by unique ID and reported total. Additional badge pages remain an explicit unsupported case.
+- Profile requests are paced, and the browser response listener checks the subject profile ID even when a response URL retains an earlier route prefix. Request handlers now use Playwright's documented fallback behavior to preserve other handlers and test isolation.
+- Created an ignored local site contract directly from the observed listing request. No personal IDs or credentials were inserted into source files. No commit or upload was made.
+- Offline validation on the saved snapshots produced `output/inspection-preview/profiles.csv`: two rows, 52 columns, explicitly partial. The third profile failed because its community snapshot was incomplete. It was not silently exported with missing memberships.
+- All 69 tests passed; Ruff lint/format and whitespace checks passed. The new adapter's live request-context compatibility, community pagination, runtime, and resume behavior still require the 25-profile live checkpoint.
+- Full coverage and independent field-fidelity flags remain false. Identity matching and successful parsing are not presented as proof of complete field coverage. THINKING.md remains unchanged.
+
+### Publication and next validation checkpoint
+
+- The author authorized publishing the implementation with its synthetic tests, while keeping all real credentials, sessions, and collected data local. Earlier no-push statements above describe those earlier checkpoints.
+- The author selected a 15-profile validation run. Updated the current instructions to use isolated `output/sample-15/` state. No live result is claimed for this run yet.

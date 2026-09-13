@@ -2,7 +2,7 @@
 
 A Python application for resumable, permitted directory collection and validated UTF-8 CSV export. The repository keeps the assessment's original TigerBook name; the author confirmed **https://tigernet.princeton.edu/** as the target and confirmed bulk collection and sharing permission.
 
-**Status: core implementation and synthetic tests are available. Live collection is blocked on credential configuration and authenticated site inspection.** There is no verified production directory adapter, live CSV, or Google Sheet yet. Passing synthetic tests do not prove unattended TigerNet authentication or exhaustive coverage.
+**Status: attended login and expanded inspection succeeded. The observed TigerNet adapter is ready for a limited live validation run.** Full collection and coverage verification remain unfinished. An offline preview contains two successfully parsed profiles; a third is marked incomplete because its saved community response is paginated. There is no full CSV or Google Sheet yet.
 
 The public login flow was inspected in a fresh browser on September 13, 2026. It leads to Princeton CAS at `https://fed.princeton.edu/cas/login`. No authenticated directory or profile endpoint has been guessed. Collection requires a parser contract established from actual authenticated observations.
 
@@ -23,7 +23,17 @@ Playwright is the only production dependency. SQLite and CSV handling use the st
 
 ## Credentials and first live checkpoint
 
-Set both `TIGERNET_USERNAME` and `TIGERNET_PASSWORD` in the process environment using local credential tooling. Alternatively, create the ignored `credentials.local.json` in the repository root and edit it locally:
+For credentials held only in the running process, use this launcher from your terminal:
+
+```bash
+python -m tigerbook_scraper.local_env --inspect --allow-interactive
+```
+
+It prompts for your NetID and password with both inputs hidden, sets `TIGERNET_USERNAME` and `TIGERNET_PASSWORD` for the scraper process, and clears those assignments when the run ends. Values are not written to a file or entered as shell commands. Your parent shell is unchanged. Environment variables are not encrypted storage and can be accessible to processes with sufficient privileges. The launcher refuses noninteractive or echoed input.
+
+Replace `--inspect` with other scraper arguments when the site integration is ready. This is credential configuration, not a manual CAS login or an MFA workaround. A new invocation prompts again. For already configured environment variables, use the ordinary `python -m tigerbook_scraper` commands below.
+
+The existing ignored JSON credential-file option is still supported, but it stores plaintext on disk. If you choose that option, create `credentials.local.json` locally:
 
 ```json
 {"username": "", "password": ""}
@@ -37,11 +47,11 @@ The next available live command is:
 python -m tigerbook_scraper --inspect
 ```
 
-It starts a fresh browser context, drives the observed CAS form, and saves a small **private** inspection under `output/inspection/`. A directory link alone is not proof of authenticated access. Inspect protected content to establish the actual listing, profile structures, session behavior, and scope before implementing the final site contract. Inspection files can contain personal data or sensitive page state; keep them local.
+It starts a fresh browser context, drives the observed CAS form, and saves a small **private** inspection under `output/inspection/`. The extended inspection follows the observed Next page button and up to three observed profile links, with per-stage timings and responses. Token-service JSON payloads are excluded. A directory link alone is not proof of authenticated access. Inspect protected content to establish the actual listing, profile structures, session behavior, and scope before implementing the final site contract. Inspection files can contain personal data or sensitive page state; keep them local.
 
-Human MFA, passkey, or security-key challenges cause an explicit blocker. The application does not bypass them, use pasted cookies, or reuse a saved browser session. An interactive login would still leave the assessment's unattended requirement unmet.
+With `--allow-interactive`, a visible browser waits up to five minutes for you to complete normal MFA approval, then continues automatically. The same option applies to session renewal. Without it, interactive challenges still stop the run. No MFA approval or verification code is automated, and no saved browser session is reused. The author has authorized attended authentication for this project; this is a deviation from the original assessment's unattended requirement, not evidence that unattended login works.
 
-See [site integration](docs/SITE-INTEGRATION.md) for the remaining work. Once that integration is verified, `--check-auth` checks a fresh session against a directory listing and an accessible profile. It currently requires the missing verified contract.
+See [site integration](docs/SITE-INTEGRATION.md) for the remaining work. `--check-auth` checks a fresh session against a directory listing and an accessible profile. It requires a local site contract, which is not distributed in this repository.
 
 ## Operator commands
 
@@ -63,7 +73,11 @@ python -m tigerbook_scraper --limit 25 --export-only
 python -m tigerbook_scraper --help
 ```
 
-`--output-dir` selects a separate run root. Use a directory outside the checkout, or inside an ignored directory. `--credentials-file` selects a private credential file. `--site-contract` selects reviewed parser configuration; the eventual default is `src/tigerbook_scraper/site_contract.json`, which does not exist yet.
+`--output-dir` selects a separate run root. Use a directory outside the checkout, or inside an ignored directory. `--credentials-file` selects a private credential file. `--site-contract` selects parser configuration; the default is the ignored `private/site-contract.json`. A local contract has been created from the actual observed listing request. It is not included in the public repository.
+
+The next local validation command is `python -m tigerbook_scraper.local_env --limit 15 --allow-interactive`. It uses authenticated listing requests and captures the profile responses made by the normal browser UI, then follows observed community pagination. It produces an explicitly partial sample under `output/sample-15/`. Profile-data requests are paced, and values are extracted from field metadata rather than a fixed field list. Leave the browser open during collection. Restart the same command to resume an interrupted sample. A partial export exits with code 2; inspect the report to distinguish the intentional sample limit from unresolved failures.
+
+The current listing sorts by last activity, and the first two observed pages overlap by one ID. Scope and exhaustive coverage are therefore unproven. The adapter deliberately keeps coverage and independent field-fidelity flags false. Rendered identity checks are consistency evidence only. Self-only, admin-only, and otherwise restricted fields are conservatively omitted; unusual privacy or section structures require investigation. Additional badge pages currently cause an explicit incomplete-profile error rather than silent truncation.
 
 The full run uses `output/full/`; each limit uses `output/sample-N/`. A run cannot be reused with a different account, target, scope, limit, or parser contract. Choose a new output directory for a new collection. An OS lock prevents two writers from sharing a run. Interrupt with Ctrl+C, then restart the same command. Resumed runs authenticate in a new browser context. Failed profiles are retried on restart; completed profiles are retained.
 
@@ -112,9 +126,9 @@ Tests use invented profiles and intercepted traffic, with an unusable proxy prev
 
 Remaining live acceptance steps:
 
-1. Configure credentials and establish supported unattended login.
-2. Inspect permitted responses and implement the verified contract or necessary site-specific adapter changes.
-3. Validate a small authenticated export, compare varied profiles, and rehearse interruption/resume.
+1. Run the 15-profile attended validation and check the produced sample and report.
+2. Establish reliable enumeration and permitted field coverage from observed behavior, including source sorting and scope filters.
+3. Independently compare varied profiles and rehearse live interruption/resume.
 4. Measure requests and elapsed time, estimate collection duration, then run the permitted collection.
 5. Audit coverage and field fidelity; rehearse installation plus fresh authentication from a new checkout.
 6. Manually import and verify the Sheet; provide verified repository and Sheet links.

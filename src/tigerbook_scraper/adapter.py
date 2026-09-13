@@ -53,12 +53,15 @@ def load_contract(path: Path) -> dict:
         ) from None
     if not isinstance(value, dict) or value.get("target") != TARGET:
         raise ConfigurationError("The site contract does not describe the approved target.")
-    if value.get("mode") not in ("json", "dom") or not value.get("evidence"):
+    if value.get("mode") not in ("json", "dom", "tigernet") or not value.get("evidence"):
         raise ConfigurationError("A site contract must record its mode and observation evidence.")
     if type(value.get("exhaustive", False)) is not bool:
         raise ConfigurationError("The exhaustive flag must be a boolean, supported by evidence.")
     if value.get("exhaustive") and not value.get("enumeration_evidence"):
         raise ConfigurationError("Exhaustive discovery requires documented enumeration evidence.")
+    if value["mode"] == "tigernet":
+        target_url(value.get("listing_url"))
+        return value
     required = {"listing_url", "audit"}
     required |= (
         {"records_path", "id_path", "url_path", "next_path", "total_path", "profile_path"}
