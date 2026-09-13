@@ -5,6 +5,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pytest
 from test_fast import Gate, requests
 from test_tigernet_fields import source
 
@@ -14,8 +15,9 @@ from tigerbook_scraper.state import State
 from tigerbook_scraper.tigernet_fields import extract_profile
 
 
+@pytest.mark.parametrize("reference_mismatch", [False, True])
 def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, reference_mismatch
 ):
     values = source()
     values["topics"].update(page=1, total_items=0)
@@ -62,6 +64,9 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
     for entry in templates.values():
         entry["url"] = entry["url"].replace(original_target, target)
         entry["headers"]["authorization"] = "Bearer synthetic-test-only"
+    reference = (
+        expected if not reference_mismatch else {**expected, "Synthetic mismatch": "browser"}
+    )
     setup = {
         "session": {
             "cookies": [
@@ -80,7 +85,7 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
         },
         "templates": templates,
         "base_keys": {"name"},
-        "references": [(ProfileRef("1", target + "/users/1"), expected)],
+        "references": [(ProfileRef("1", target + "/users/1"), reference)],
     }
     state = State(
         tmp_path / "run.sqlite",
@@ -105,6 +110,7 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
         )
         assert state.counts()["complete"] == 1
         assert state.get("direct_browser_comparisons") == 1
+        assert state.get("direct_browser_mismatches") == int(reference_mismatch)
         assert all(cookie_checks) and all(auth_checks) and auth_checks
         assert "/users/1" not in visited
         assert list(state.records())[0][2]["Custom/Brand new field"] == "東京"

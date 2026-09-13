@@ -41,7 +41,8 @@ def requests():
 
 def test_templates_only_use_observed_get_requests():
     templates = observed_templates(requests(), "1")
-    assert templates["body"]["url"] == TARGET + "/users/{profile_id}/users/{profile_id}/data"
+    assert templates["body"]["url"] == TARGET + "/users/99/users/{profile_id}/data"
+    assert templates["topics"]["url"].startswith(TARGET + "/users/99/users/{profile_id}/")
     invalid = requests()
     invalid["base"]["url"] = "https://other.test/private/frontoffice/users/profiles/1"
     with pytest.raises(ExtractionError):
@@ -247,6 +248,41 @@ def test_fatal_error_cancels_other_work():
         with pytest.raises(AccessBlocked):
             await together([blocked(), waiting()])
         assert cancelled == [True]
+
+    asyncio.run(run())
+
+
+def test_profile_extraction_failures_do_not_stop_remaining_queue(tmp_path):
+    async def run():
+        state = State(
+            tmp_path / "run.sqlite",
+            {
+                "target": TARGET,
+                "account": "synthetic",
+                "scope": "fast-full",
+                "limit": None,
+            },
+        )
+
+        async def get(_url):
+            return {"users": [{"id": i} for i in range(1, 13)], "total_items": 12}
+
+        async def profile(ref):
+            if ref.id != "12":
+                raise ExtractionError("Synthetic incompatible profile")
+            return {"Name": "Synthetic"}
+
+        await collect_direct(
+            state,
+            SimpleNamespace(get=get, throttle=Gate()),
+            SimpleNamespace(profile=profile),
+            {"listing_url": TARGET + "/frontoffice/api/users?page=1&per_page=12"},
+            workers=1,
+            progress=lambda _: None,
+        )
+        assert state.counts() == {"pending": 0, "complete": 1, "failed": 11, "discovered": 12}
+        assert list(state.records())[0][0] == "12"
+        state.close()
 
     asyncio.run(run())
 

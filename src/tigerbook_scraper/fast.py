@@ -52,8 +52,18 @@ def observed_templates(requests, profile_id):
         if request["method"] != "GET" or response_kind(url, profile_id) != kind:
             raise ConfigurationError("A profile request does not match the observed GET interface.")
         parts = urlsplit(url)
-        # Only profile-ID path segments are substituted, never arbitrary query values.
-        path = re.sub(r"(/(?:users|profiles)/)\d+(?=/|$)", r"\1{profile_id}", parts.path)
+        # Body/community routes contain both the signed-in viewer ID and target
+        # profile ID. Preserve the viewer ID and replace only the observed target.
+        patterns = {
+            "base": rf"(/profiles/){re.escape(profile_id)}$",
+            "header": rf"(/users/){re.escape(profile_id)}(?=/user_profiles/header_data$)",
+            "body": rf"(/users/\d+/users/){re.escape(profile_id)}(?=/data$)",
+            "topics": rf"(/users/\d+/users/){re.escape(profile_id)}(?=/followed_topics$)",
+            "badges": rf"(/users/){re.escape(profile_id)}(?=/badges\.json$)",
+        }
+        path, replacements = re.subn(patterns[kind], r"\1{profile_id}", parts.path, count=1)
+        if replacements != 1:
+            raise ConfigurationError("Could not isolate the target profile ID in a request route.")
         template = urlunsplit(parts._replace(path=path))
         if response_kind(template.replace("{profile_id}", "1"), "1") != kind:
             raise ConfigurationError("Could not establish the observed profile request template.")
@@ -83,11 +93,25 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
             listing = adapter.list_page(None)
             if not listing.profiles:
                 raise DiscoveryError("No accessible profiles could establish fast collection.")
-            references, base_keys, templates = [], set(), None
-            for ref in listing.profiles[:sample_size]:
-                fields = adapter.profile(ref)
-                if not adapter.audit(ref, fields):
-                    raise ExtractionError("Rendered startup reference did not verify identity.")
+            references, base_keys, templates, skipped = [], set(), None, 0
+            for ref in listing.profiles:
+                if len(references) >= sample_size:
+                    break
+                try:
+                    fields = adapter.profile(ref)
+                    if not adapter.audit(ref, fields):
+                        raise ExtractionError("Rendered startup reference did not verify identity.")
+                    current = observed_templates(adapter.last_requests, ref.id)
+                    if templates is not None and any(
+                        current[key]["url"] != templates[key]["url"] for key in KINDS
+                    ):
+                        raise ConfigurationError(
+                            "Observed profile request routes were inconsistent."
+                        )
+                except (ConfigurationError, ExtractionError, FetchError):
+                    skipped += 1
+                    progress("Skipped one incompatible startup profile; trying the next result.")
+                    continue
                 references.append((ref, fields))
                 base_keys.update(
                     key.removeprefix("Profile/")
@@ -96,12 +120,11 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
                     and isinstance(value, str)
                     and key.removeprefix("Profile/") in HEADER_KEYS
                 )
-                current = observed_templates(adapter.last_requests, ref.id)
-                if templates is not None and any(
-                    current[key]["url"] != templates[key]["url"] for key in KINDS
-                ):
-                    raise ConfigurationError("Observed profile request routes were inconsistent.")
                 templates = current
+            if not references:
+                raise ExtractionError(
+                    "No profile on the first directory page established a usable request shape."
+                )
             progress("Browser reference captured. Checking direct requests before full collection.")
             return {
                 "session": context.storage_state(),
@@ -110,6 +133,7 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
                 "references": references,
                 "listing_total": listing.total,
                 "user_agent": page.evaluate("navigator.userAgent"),
+                "startup_profiles_skipped": skipped,
             }
         finally:
             context.close()
@@ -283,7 +307,6 @@ async def collect_direct(
     started, initial = time.monotonic(), state.counts()["complete"]
     counts = state.counts()
     last_notice = 0.0
-    consecutive_failures = 0
 
     def notice(force=False):
         nonlocal last_notice
@@ -365,7 +388,7 @@ async def collect_direct(
 
         # Reserve limit slots before awaiting so concurrent completions cannot overshoot.
         async def worker():
-            nonlocal budget, consecutive_failures
+            nonlocal budget
             while budget is None or budget > 0:
                 ref = next(iterator, None)
                 if ref is None:
@@ -377,17 +400,11 @@ async def collect_direct(
                     fields = await profiles.profile(ref)
                     state.complete(ref.id, fields)
                     counts["complete"] += 1
-                    consecutive_failures = 0
                 except (FetchError, ExtractionError) as error:
                     state.fail(ref.id, error.code)
                     counts["failed"] += 1
                     if budget is not None:
                         budget += 1
-                    consecutive_failures += 1
-                    if consecutive_failures >= 10:
-                        raise ExtractionError(
-                            "Ten consecutive profiles failed; inspect before resuming."
-                        ) from None
                 counts["pending"] -= 1
                 notice()
 
@@ -457,8 +474,13 @@ async def session_run(
             throttle = Throttle(start_rate, ceiling)
             client = Client(request, throttle, workers)
             profiles = DirectProfiles(client, setup["templates"], setup["base_keys"])
+            comparison_mismatches = 0
             for ref, expected in setup["references"]:
-                actual = await profiles.profile(ref)
+                try:
+                    actual = await profiles.profile(ref)
+                except (FetchError, ExtractionError):
+                    comparison_mismatches += 1
+                    continue
 
                 # Base header fields are deliberately fixed from startup observations;
                 # labelled sections, memberships, badges and repeated records must agree.
@@ -472,10 +494,15 @@ async def session_run(
                     }
 
                 if core(actual) != core(expected):
-                    raise ExtractionError(
-                        "Direct-request startup comparison disagreed with browser data."
-                    )
+                    comparison_mismatches += 1
             state.note("direct_browser_comparisons", len(setup["references"]))
+            state.note("direct_browser_mismatches", comparison_mismatches)
+            state.note("startup_profiles_skipped", setup.get("startup_profiles_skipped", 0))
+            if comparison_mismatches:
+                progress(
+                    "Startup comparison found profile differences; continuing with local failure "
+                    "tracking and a partial completion report."
+                )
             state.note("fixed_base_fields", sorted(setup["base_keys"]))
             state.note("field_fidelity_verified", False)
             effective = dict(contract)

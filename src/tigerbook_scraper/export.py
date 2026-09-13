@@ -114,6 +114,8 @@ def export_run(state: State, directory: Path) -> dict:
         reasons.append("empty_population_requires_review")
     if not state.get("field_fidelity_verified", False):
         reasons.append("field_fidelity_not_verified")
+    if state.get("direct_browser_mismatches", 0):
+        reasons.append("direct_browser_mismatch")
     if state.get("collection_mode") == "direct_requests_fixed_header":
         reasons.append("fixed_header_field_subset")
     report = {
@@ -136,6 +138,8 @@ def export_run(state: State, directory: Path) -> dict:
         "audited_profiles": state.get("audit_count", 0),
         "collection_mode": state.get("collection_mode", "browser"),
         "direct_browser_comparisons": state.get("direct_browser_comparisons", 0),
+        "direct_browser_mismatches": state.get("direct_browser_mismatches", 0),
+        "startup_profiles_skipped": state.get("startup_profiles_skipped", 0),
         "fixed_base_fields": state.get("fixed_base_fields"),
         "observed_totals": {
             phase: state.get(f"total:{phase}") for phase in ("discovery", "reconciliation")

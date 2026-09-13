@@ -85,7 +85,7 @@ Exit codes: `0` means a validated complete collection or successful requested di
 
 ## Faster request-based collection
 
-`--fast` still scrapes the directory. It uses normal browser authentication, captures the actual GET requests for three profiles, and compares direct responses against their rendered reference records before continuing. After this startup, the browser closes and profile fetching uses concurrent requests. Credentials, session cookies, and observed authorization headers stay in process memory and are never written to Git, configuration, or run reports. If the session expires, normal browser authentication reopens; repeated renewal failures without collection progress stop the run.
+`--fast` still scrapes the directory. It uses normal browser authentication, captures the actual GET requests for up to three profiles, and compares direct responses against their rendered reference records before continuing. An incompatible startup profile is skipped while other results are tried. A comparison difference is recorded in the partial report instead of terminating collection. After startup, the browser closes and profile fetching uses concurrent requests. Credentials, session cookies, and observed authorization headers stay in process memory and are never written to Git, configuration, or run reports. If the session expires, normal browser authentication reopens; repeated renewal failures without collection progress stop the run.
 
 ```bash
 # Full request-based collection: start at 20/s and scale to 40/s
@@ -95,7 +95,7 @@ python -m tigerbook_scraper.local_env --fast --allow-interactive
 python -m tigerbook_scraper --fast --export-only
 ```
 
-Fast mode starts at 20 requests/second. After each 2,000 consecutive successful responses it adds 2 requests/second, up to the default ceiling of 40. Transient network or server failures reset the success streak and reduce the rate by 20 percent. HTTP 429 halves the rate and applies a global `Retry-After` cooldown; persistent throttling and HTTP 403 stop collection. All requests and workers share the same pacing gate. In-flight requests are capped independently by `--workers` (default and maximum 32). Ten consecutive profile failures also stop the run for investigation. These rates are operator limits, not verified TigerNet service limits. No speed or same-day completion is claimed before live measurement.
+Fast mode starts at 20 requests/second. After each 2,000 consecutive successful responses it adds 2 requests/second, up to the default ceiling of 40. Transient network or server failures reset the success streak and reduce the rate by 20 percent. HTTP 429 halves the rate and applies a global `Retry-After` cooldown; persistent throttling and HTTP 403 stop collection. All requests and workers share the same pacing gate. In-flight requests are capped independently by `--workers` (default and maximum 32). Individual fetch and extraction failures are saved against their profile IDs while the remaining queue continues. These rates are operator limits, not verified TigerNet service limits. No speed or same-day completion is claimed before live measurement.
 
 Use `--requests-per-second` to change the starting rate and `--max-requests-per-second` to change the ceiling. The implementation rejects a maximum above 50 requests/second and a starting rate above the maximum.
 

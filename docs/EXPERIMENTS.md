@@ -156,3 +156,9 @@ directory integration remain unverified at that checkpoint. These changes remain
 - The author requested starting at 20 requests/second and scaling upward when no problems occur. Fast mode now defaults to 20/s with 32 in-flight request slots and a 40/s ceiling.
 - The global gate increases by 2/s after 2,000 consecutive successful responses. A transient network or server failure resets that streak and reduces the rate by 20 percent. HTTP 429 halves the rate and applies the shared cooldown. The configurable hard maximum is 50/s.
 - These are client-side limits, not evidence of a supported TigerNet rate. The first live run must establish actual throughput and throttling behavior. Checkpointing and explicit partial reports remain unchanged.
+
+### Fast startup failure and route correction
+
+- The first full fast run stopped before discovery with `unrecognized_profile`. Its local report contained zero discovered and completed profiles, so the adaptive request-rate collection had not begun.
+- Review found that body and community request templates replaced both numeric user path segments. The first segment identifies the signed-in viewer; only the second identifies the target profile. The template now preserves the observed viewer ID.
+- An incompatible startup profile is now skipped while the remainder of the first listing page is tried. Direct/browser differences and individual extraction failures are recorded locally and produce a partial report, while collection continues. Authentication denial, persistent throttling, and an unusable request shape still stop because continuing cannot produce authorized records.
