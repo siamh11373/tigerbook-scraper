@@ -32,6 +32,11 @@ def parser():
         help="Fast-mode adaptive request-rate ceiling (default 40/s, maximum 50/s)",
     )
     value.add_argument(
+        "--browser-sessions",
+        type=int,
+        help="Independent authenticated fast-mode sessions (1–2, default 1)",
+    )
+    value.add_argument(
         "--allow-interactive",
         action="store_true",
         help="Open a visible browser and wait up to five minutes for your MFA approval",
@@ -65,18 +70,21 @@ def main(argv=None) -> int:
                 args.requests_per_second = 2.0
             if args.max_requests_per_second is None:
                 args.max_requests_per_second = 40.0
+            if args.browser_sessions is None:
+                args.browser_sessions = 1
             if args.inspect or args.check_auth:
                 from .errors import ConfigurationError
 
                 raise ConfigurationError("Use --fast for collection or offline export only.")
             if not (
                 1 <= args.workers <= 32
+                and 1 <= args.browser_sessions <= 2
                 and 0 < args.requests_per_second <= args.max_requests_per_second <= 50
             ):
                 from .errors import ConfigurationError
 
                 raise ConfigurationError(
-                    "Use 1–32 workers and rates where 0 < start <= maximum <= 50."
+                    "Use 1–32 workers, 1–2 sessions, and rates where 0 < start <= maximum <= 50."
                 )
         elif any(
             value is not None
@@ -84,6 +92,7 @@ def main(argv=None) -> int:
                 args.workers,
                 args.requests_per_second,
                 args.max_requests_per_second,
+                args.browser_sessions,
             )
         ):
             from .errors import ConfigurationError
@@ -126,6 +135,7 @@ def main(argv=None) -> int:
                         workers=args.workers,
                         start_rate=args.requests_per_second,
                         ceiling=args.max_requests_per_second,
+                        browser_sessions=args.browser_sessions,
                     )
                 except BaseException as error:
                     state.note(

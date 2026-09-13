@@ -1,6 +1,7 @@
 """Real Playwright request transport against an ephemeral loopback-only server."""
 
 import asyncio
+import copy
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -16,18 +17,23 @@ from tigerbook_scraper.tigernet_fields import extract_profile
 
 
 @pytest.mark.parametrize("reference_mismatch", [False, True])
+@pytest.mark.parametrize("session_count", [1, 2])
 def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
-    tmp_path, monkeypatch, reference_mismatch
+    tmp_path, monkeypatch, reference_mismatch, session_count
 ):
-    values = source()
-    values["topics"].update(page=1, total_items=0)
-    expected = extract_profile(**values)
+    values_by_id = {}
+    for profile_id in range(1, session_count + 1):
+        values = source()
+        values["base"].update(id=profile_id, name=f"Synthetic {profile_id}")
+        values["topics"].update(page=1, total_items=0)
+        values_by_id[str(profile_id)] = values
     templates = fast.observed_templates(requests(), "1")
     cookie_checks, auth_checks, visited = [], [], []
-    payloads = {
-        entry["url"].replace("{profile_id}", "1").removeprefix(fast.TARGET): values[kind]
-        for kind, entry in templates.items()
-    }
+    payloads = {}
+    for profile_id, values in values_by_id.items():
+        for kind, entry in templates.items():
+            path = entry["url"].replace("{profile_id}", profile_id).removeprefix(fast.TARGET)
+            payloads[path] = (profile_id, values[kind])
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -35,14 +41,24 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
 
         def do_GET(self):
             visited.append(self.path)
-            cookie_checks.append(self.headers.get("Cookie") == "synthetic-session=test-only")
             if self.path.startswith("/frontoffice/api/users?"):
-                data = {"users": [{"id": 1}], "total_items": 1}
-            elif self.path in payloads:
-                auth_checks.append(
-                    self.headers.get("Authorization") == "Bearer synthetic-test-only"
+                cookie_checks.append(
+                    "synthetic-session=session-0" in self.headers.get("Cookie", "")
                 )
-                data = payloads[self.path]
+                data = {
+                    "users": [{"id": profile_id} for profile_id in range(1, session_count + 1)],
+                    "total_items": session_count,
+                }
+            elif self.path in payloads:
+                profile_id, data = payloads[self.path]
+                expected_session = 0 if session_count == 1 else int(profile_id) % session_count
+                cookie_checks.append(
+                    f"synthetic-session=session-{expected_session}"
+                    in self.headers.get("Cookie", "")
+                )
+                auth_checks.append(
+                    self.headers.get("Authorization") == f"Bearer synthetic-{expected_session}"
+                )
             else:
                 self.send_error(404)
                 return
@@ -63,58 +79,80 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
     monkeypatch.setattr(fast, "Throttle", lambda _start, _ceiling: Gate())
     for entry in templates.values():
         entry["url"] = entry["url"].replace(original_target, target)
-        entry["headers"]["authorization"] = "Bearer synthetic-test-only"
-    reference = (
-        expected if not reference_mismatch else {**expected, "Synthetic mismatch": "browser"}
-    )
-    setup = {
-        "session": {
-            "cookies": [
-                {
-                    "name": "synthetic-session",
-                    "value": "test-only",
-                    "domain": "127.0.0.1",
-                    "path": "/",
-                    "expires": -1,
-                    "httpOnly": True,
-                    "secure": False,
-                    "sameSite": "Lax",
-                }
-            ],
-            "origins": [],
-        },
-        "templates": templates,
-        "base_keys": {"name"},
-        "references": [(ProfileRef("1", target + "/users/1"), reference)],
-    }
+    setups = []
+    for session_index in range(session_count):
+        session_templates = copy.deepcopy(templates)
+        for entry in session_templates.values():
+            entry["headers"]["authorization"] = f"Bearer synthetic-{session_index}"
+        reference_id = "1" if session_count == 1 else str(session_count - session_index)
+        reference = extract_profile(**values_by_id[reference_id])
+        if reference_mismatch:
+            reference = {**reference, "Synthetic mismatch": "browser"}
+        setups.append(
+            {
+                "session": {
+                    "cookies": [
+                        {
+                            "name": "synthetic-session",
+                            "value": f"session-{session_index}",
+                            "domain": "127.0.0.1",
+                            "path": "/",
+                            "expires": -1,
+                            "httpOnly": True,
+                            "secure": False,
+                            "sameSite": "Lax",
+                        }
+                    ],
+                    "origins": [],
+                },
+                "templates": session_templates,
+                "base_keys": {"name"},
+                "references": [
+                    (
+                        ProfileRef(reference_id, target + "/users/" + reference_id),
+                        reference,
+                    )
+                ],
+            }
+        )
+    setup_input = setups[0] if session_count == 1 else setups
     state = State(
         tmp_path / "run.sqlite",
         {
             "target": target,
             "account": "synthetic",
-            "scope": "fast-sample-1",
-            "limit": 1,
+            "scope": f"fast-sample-{session_count}",
+            "limit": session_count,
         },
     )
     try:
         asyncio.run(
             fast.session_run(
                 state,
-                setup,
-                {"listing_url": target + "/frontoffice/api/users?page=1&per_page=1"},
-                limit=1,
+                setup_input,
+                {
+                    "listing_url": (
+                        target + f"/frontoffice/api/users?page=1&per_page={session_count}"
+                    )
+                },
+                limit=session_count,
                 start_rate=1,
                 ceiling=1,
                 progress=lambda _: None,
             )
         )
-        assert state.counts()["complete"] == 1
-        assert state.get("direct_browser_comparisons") == 1
-        assert state.get("direct_browser_mismatches") == int(reference_mismatch)
+        assert state.counts()["complete"] == session_count
+        assert state.get("direct_browser_comparisons") == session_count
+        assert state.get("direct_browser_mismatches") == int(reference_mismatch) * session_count
+        assert state.get("browser_sessions") == session_count
         assert all(cookie_checks) and all(auth_checks) and auth_checks
-        assert "/users/1" not in visited
-        assert list(state.records())[0][2]["Custom/Brand new field"] == "東京"
-        assert "synthetic-test-only" not in " ".join(
+        for profile_id in range(1, session_count + 1):
+            assert any(
+                path.startswith(f"/private/frontoffice/users/profiles/{profile_id}")
+                for path in visited
+            )
+        assert all(record[2]["Custom/Brand new field"] == "東京" for record in state.records())
+        assert "synthetic-" not in " ".join(
             row[0] for row in state.db.execute("select value from meta")
         )
     finally:

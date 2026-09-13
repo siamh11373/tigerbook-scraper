@@ -196,12 +196,13 @@ class Client:
         throttle,
         workers=8,
         *,
+        slots=None,
         attempts=4,
         operation_timeout=35,
         disposal_timeout=5,
     ):
         self.request, self.throttle = request, throttle
-        self.slots = asyncio.Semaphore(workers)
+        self.slots = asyncio.Semaphore(workers) if slots is None else slots
         self.attempts = attempts
         self.operation_timeout = operation_timeout
         self.disposal_timeout = disposal_timeout
@@ -332,6 +333,39 @@ class DirectProfiles:
                 visible_base_keys=self.base_keys,
             )
         )
+
+
+class SessionPool:
+    """Share safety limits while assigning each profile to one session."""
+
+    def __init__(self, clients, profiles):
+        self.clients = tuple(clients)
+        self.profiles = tuple(profiles)
+        if not self.clients or len(self.clients) != len(self.profiles):
+            raise ConfigurationError("Each authenticated client needs one profile source.")
+        if len({id(client.throttle) for client in self.clients}) != 1:
+            raise ConfigurationError("Authenticated clients must share one request-rate limit.")
+        if len({id(client.slots) for client in self.clients}) != 1:
+            raise ConfigurationError("Authenticated clients must share one request-slot limit.")
+        self.throttle = self.clients[0].throttle
+
+    async def get(self, url, headers=None):
+        return await self.clients[0].get(url, headers)
+
+    async def profile(self, ref):
+        return await self.profiles[int(ref.id) % len(self.profiles)].profile(ref)
+
+
+def stabilize_base_keys(setups, saved=None):
+    """Apply one fixed visible-header field set to every authenticated session."""
+    stable = (
+        set(saved) & HEADER_KEYS
+        if saved is not None
+        else set().union(*(item["base_keys"] for item in setups))
+    )
+    for item in setups:
+        item["base_keys"] = set(stable)
+    return stable
 
 
 async def collect_direct(
@@ -523,53 +557,82 @@ async def session_run(
 ):
     from playwright.async_api import async_playwright
 
+    setups = setup if isinstance(setup, list) else [setup]
     async with async_playwright() as playwright:
-        request = await playwright.request.new_context(
-            storage_state=setup["session"], user_agent=setup.get("user_agent")
-        )
+        requests = []
         try:
-            throttle = Throttle(start_rate, ceiling)
-            client = Client(request, throttle, workers)
-            profiles = DirectProfiles(client, setup["templates"], setup["base_keys"])
+            for item in setups:
+                requests.append(
+                    await playwright.request.new_context(
+                        storage_state=item["session"], user_agent=item.get("user_agent")
+                    )
+                )
+            shared_throttle = Throttle(start_rate, ceiling)
+            shared_slots = asyncio.Semaphore(workers)
+            clients = [
+                Client(
+                    request,
+                    shared_throttle,
+                    workers,
+                    slots=shared_slots,
+                )
+                for request in requests
+            ]
+            profile_sources = [
+                DirectProfiles(client, item["templates"], item["base_keys"])
+                for client, item in zip(clients, setups, strict=True)
+            ]
+            pool = SessionPool(clients, profile_sources)
             comparison_mismatches = 0
-            for ref, expected in setup["references"]:
-                try:
-                    actual = await profiles.profile(ref)
-                except (FetchError, ExtractionError):
-                    comparison_mismatches += 1
-                    continue
+            comparisons = 0
+            for profiles, item in zip(profile_sources, setups, strict=True):
+                for ref, expected in item["references"]:
+                    comparisons += 1
+                    try:
+                        actual = await profiles.profile(ref)
+                    except (FetchError, ExtractionError):
+                        comparison_mismatches += 1
+                        continue
 
-                # Base header fields are deliberately fixed from startup observations;
-                # labelled sections, memberships, badges and repeated records must agree.
-                def core(fields):
-                    return {
-                        key: value
-                        for key, value in fields.items()
-                        if not key.startswith("Profile/")
-                        or key
-                        in ("Profile/introduction", "Profile/Alumni Communities", "Profile/Badges")
-                    }
+                    # Base header fields are deliberately fixed from startup observations;
+                    # labelled sections, memberships, badges and repeated records must agree.
+                    def core(fields):
+                        return {
+                            key: value
+                            for key, value in fields.items()
+                            if not key.startswith("Profile/")
+                            or key
+                            in (
+                                "Profile/introduction",
+                                "Profile/Alumni Communities",
+                                "Profile/Badges",
+                            )
+                        }
 
-                if core(actual) != core(expected):
-                    comparison_mismatches += 1
-            state.note("direct_browser_comparisons", len(setup["references"]))
+                    if core(actual) != core(expected):
+                        comparison_mismatches += 1
+            state.note("direct_browser_comparisons", comparisons)
             state.note("direct_browser_mismatches", comparison_mismatches)
-            state.note("startup_profiles_skipped", setup.get("startup_profiles_skipped", 0))
+            state.note(
+                "startup_profiles_skipped",
+                sum(item.get("startup_profiles_skipped", 0) for item in setups),
+            )
+            state.note("browser_sessions", len(setups))
             if comparison_mismatches:
                 progress(
                     "Startup comparison found profile differences; continuing with local failure "
                     "tracking and a partial completion report."
                 )
-            state.note("fixed_base_fields", sorted(setup["base_keys"]))
+            state.note("fixed_base_fields", sorted(setups[0]["base_keys"]))
             state.note("field_fidelity_verified", False)
             effective = dict(contract)
             effective["listing_url"] = state.get("fast_listing_url")
             if effective["listing_url"] is None:
                 effective["listing_url"] = await choose_listing(
-                    client,
+                    pool,
                     contract["listing_url"],
-                    setup.get("listing_total"),
-                    {ref.id for ref, _ in setup["references"]},
+                    setups[0].get("listing_total"),
+                    {ref.id for ref, _ in setups[0]["references"]},
                 )
                 state.note("fast_listing_url", effective["listing_url"])
             size = parse_qs(urlsplit(effective["listing_url"]).query)["per_page"][0]
@@ -582,15 +645,17 @@ async def session_run(
             profile_workers = max(1, (workers + len(KINDS) - 1) // len(KINDS))
             await collect_direct(
                 state,
-                client,
-                profiles,
+                pool,
+                pool,
                 effective,
                 limit=limit,
                 workers=profile_workers,
                 progress=progress,
             )
         finally:
-            await request.dispose()
+            await asyncio.gather(
+                *(request.dispose() for request in requests), return_exceptions=True
+            )
 
 
 def collect_fast(
@@ -603,33 +668,45 @@ def collect_fast(
     workers=32,
     start_rate=2.0,
     ceiling=40.0,
+    browser_sessions=1,
     progress=print,
 ):
     if contract.get("mode") != "tigernet":
         raise ConfigurationError("Fast mode requires the observed TigerNet contract.")
-    if not 1 <= workers <= 32 or not 0 < start_rate <= ceiling <= 50:
-        raise ConfigurationError("Use 1–32 workers and rates where 0 < start <= maximum <= 50.")
+    if (
+        not 1 <= workers <= 32
+        or not 1 <= browser_sessions <= 2
+        or not 0 < start_rate <= ceiling <= 50
+    ):
+        raise ConfigurationError(
+            "Use 1–32 workers, 1–2 sessions, and rates where 0 < start <= maximum <= 50."
+        )
     state.note("blocker", None)
     state.retry_failed()
     state.note("collection_mode", "direct_requests_fixed_header")
     state.note("field_fidelity_verified", False)
     previous_renewal = None
     while True:
-        setup = bootstrap(
-            credentials,
-            contract,
-            allow_interactive=allow_interactive,
-            sample_size=min(3, limit) if limit is not None else 3,
-            progress=progress,
-        )
-        # Keep the selected supplemental header fields stable across resumed runs.
-        if state.get("fixed_base_fields") is not None:
-            setup["base_keys"] = set(state.get("fixed_base_fields")) & HEADER_KEYS
+        setups = []
         try:
+            for number in range(browser_sessions):
+                progress(f"Authenticating browser session {number + 1} of {browser_sessions}.")
+                sample_size = min(3, limit) if number == 0 and limit is not None else 3
+                if number > 0:
+                    sample_size = 1
+                item = bootstrap(
+                    credentials,
+                    contract,
+                    allow_interactive=allow_interactive,
+                    sample_size=sample_size,
+                    progress=progress,
+                )
+                setups.append(item)
+            stabilize_base_keys(setups, state.get("fixed_base_fields"))
             asyncio.run(
                 session_run(
                     state,
-                    setup,
+                    setups,
                     contract,
                     limit=limit,
                     workers=workers,
@@ -651,4 +728,5 @@ def collect_fast(
                 "Session expired. Reopening the normal browser login; saved records are retained."
             )
         finally:
-            setup.clear()
+            for item in setups:
+                item.clear()

@@ -79,6 +79,7 @@ def test_fast_configuration_rejects_unbounded_rate_before_login(tmp_path, capsys
         ("--workers", "0"),
         ("--requests-per-second", "0"),
         ("--max-requests-per-second", "0"),
+        ("--browser-sessions", "0"),
     ],
 )
 def test_fast_configuration_rejects_explicit_zero(option, tmp_path, capsys):

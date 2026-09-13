@@ -17,9 +17,11 @@ from tigerbook_scraper.errors import (
 from tigerbook_scraper.fast import (
     Client,
     DirectProfiles,
+    SessionPool,
     Throttle,
     collect_direct,
     observed_templates,
+    stabilize_base_keys,
     together,
 )
 from tigerbook_scraper.models import ProfileRef
@@ -242,6 +244,75 @@ def test_direct_profiles_preserve_sections_and_complete_community_pages():
     asyncio.run(run())
 
 
+def test_session_pool_partitions_profiles_with_shared_safety_limits():
+    async def run():
+        visited = [[], []]
+
+        class Profiles:
+            def __init__(self, index):
+                self.index = index
+
+            async def profile(self, ref):
+                visited[self.index].append(ref.id)
+                return {"Name": "Synthetic"}
+
+        throttle = SimpleNamespace(starts=3, throttles=1, rate=2.0, ceiling=40.0)
+        slots = SimpleNamespace()
+        clients = [
+            SimpleNamespace(
+                get=lambda *_args, **_kwargs: None,
+                throttle=throttle,
+                slots=slots,
+            )
+            for _ in range(2)
+        ]
+        pool = SessionPool(clients, [Profiles(0), Profiles(1)])
+        for profile_id in ("1", "2", "3", "4"):
+            await pool.profile(ProfileRef(profile_id, TARGET + "/users/" + profile_id))
+        assert visited == [["2", "4"], ["1", "3"]]
+        assert pool.throttle is throttle
+        assert pool.throttle.starts == 3
+        assert pool.throttle.throttles == 1
+        assert pool.throttle.rate == 2
+        assert pool.throttle.ceiling == 40
+
+    asyncio.run(run())
+
+
+def test_session_pool_rejects_separate_rate_or_worker_limits():
+    profiles = [SimpleNamespace(), SimpleNamespace()]
+    throttle = SimpleNamespace()
+    slots = SimpleNamespace()
+    with pytest.raises(ConfigurationError, match="rate"):
+        SessionPool(
+            [
+                SimpleNamespace(throttle=SimpleNamespace(), slots=slots),
+                SimpleNamespace(throttle=SimpleNamespace(), slots=slots),
+            ],
+            profiles,
+        )
+    with pytest.raises(ConfigurationError, match="slot"):
+        SessionPool(
+            [
+                SimpleNamespace(throttle=throttle, slots=SimpleNamespace()),
+                SimpleNamespace(throttle=throttle, slots=SimpleNamespace()),
+            ],
+            profiles,
+        )
+
+
+def test_base_keys_are_stable_across_sessions_and_resumes():
+    setups = [{"base_keys": {"name"}}, {"base_keys": {"headline", "photo_url"}}]
+    assert stabilize_base_keys(setups) == {"name", "headline", "photo_url"}
+    assert all(item["base_keys"] == {"name", "headline", "photo_url"} for item in setups)
+
+    assert stabilize_base_keys(setups, ["name", "cover_picture_url", "private_value"]) == {
+        "name",
+        "cover_picture_url",
+    }
+    assert all(item["base_keys"] == {"name", "cover_picture_url"} for item in setups)
+
+
 def test_pending_workers_obey_limit_and_resume_without_duplicates(tmp_path):
     async def run():
         state = State(
@@ -413,7 +484,7 @@ def test_repeated_session_failure_stops_and_clears_ephemeral_setup(tmp_path, mon
     setups = []
 
     def bootstrap(*args, **kwargs):
-        value = {"session": "synthetic-session"}
+        value = {"session": "synthetic-session", "base_keys": set()}
         setups.append(value)
         return value
 

@@ -140,6 +140,7 @@ def export_run(state: State, directory: Path) -> dict:
         "direct_browser_comparisons": state.get("direct_browser_comparisons", 0),
         "direct_browser_mismatches": state.get("direct_browser_mismatches", 0),
         "startup_profiles_skipped": state.get("startup_profiles_skipped", 0),
+        "browser_sessions": state.get("browser_sessions", 1),
         "fixed_base_fields": state.get("fixed_base_fields"),
         "observed_totals": {
             phase: state.get(f"total:{phase}") for phase in ("discovery", "reconciliation")
