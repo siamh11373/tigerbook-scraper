@@ -44,7 +44,9 @@ def clean_value(value):
     return value
 
 
-def extract_profile(base, header, body, topics, badges, *, rendered_text, rendered_html):
+def extract_profile(
+    base, header, body, topics, badges, *, rendered_text, rendered_html, visible_base_keys=None
+):
     """Export display-labelled fields, intact repeated records, and visible basics.
 
     Unknown structures fail. Restricted fields are conservatively omitted, including
@@ -99,7 +101,16 @@ def extract_profile(base, header, body, topics, badges, *, rendered_text, render
     for key, value in base.items():
         if isinstance(value, str) and value.strip():
             normalized = " ".join(value.split())
-            if normalized in text or (value.startswith("https://") and value in rendered_html):
+            visible = (
+                normalized in text or (value.startswith("https://") and value in rendered_html)
+                if visible_base_keys is None
+                else key in visible_base_keys
+            )
+            if key in ("email", "email2", "email3") and (
+                visible_base_keys is not None or base.get("can_access_to_contact") is not True
+            ):
+                visible = False
+            if visible:
                 pairs.append(("Profile", key, value))
     if body.get("introduction"):
         pairs.append(("Profile", "introduction", clean_value(body["introduction"])))

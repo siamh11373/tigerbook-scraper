@@ -80,6 +80,9 @@ class TigerNetAdapter(SiteAdapter):
     def __init__(self, page, fetcher, contract):
         super().__init__(page, fetcher, contract)
         self.last_audit = None
+        # Ephemeral observations for the optional direct-request collector. Never
+        # persist request headers: they may contain authentication material.
+        self.last_requests = {}
 
     def list_page(self, cursor):
         url = target_url(cursor or self.contract["listing_url"])
@@ -107,7 +110,7 @@ class TigerNetAdapter(SiteAdapter):
     def profile(self, ref):
         renewed = False
         for attempt in range(self.fetcher.attempts):
-            captured, failures = {}, []
+            captured, failures, observed_requests = {}, [], {}
 
             def pace(route):
                 # Export image/link URLs from the profile structures and DOM;
@@ -119,7 +122,9 @@ class TigerNetAdapter(SiteAdapter):
                     self.fetcher.pacer.wait()
                 route.fallback()
 
-            def capture(response, captured=captured, failures=failures):
+            def capture(
+                response, captured=captured, failures=failures, observed_requests=observed_requests
+            ):
                 kind = response_kind(response.url, ref.id)
                 if kind is None:
                     return
@@ -135,6 +140,22 @@ class TigerNetAdapter(SiteAdapter):
                         failures.append((401, None))
                         return
                     captured[kind] = (json.loads(text), response.url)
+                    observed_requests[kind] = {
+                        "url": response.url,
+                        "method": response.request.method,
+                        "headers": {
+                            key: value
+                            for key, value in response.request.all_headers().items()
+                            if key
+                            in (
+                                "accept",
+                                "authorization",
+                                "x-csrf-token",
+                                "x-xsrf-token",
+                                "x-requested-with",
+                            )
+                        },
+                    }
                 except (PlaywrightError, ValueError):
                     failures.append((502, None))
 
@@ -179,6 +200,7 @@ class TigerNetAdapter(SiteAdapter):
             )
             name = payloads["base"].get("name")
             self.last_audit = (ref.id, fields, bool(name and name in rendered_text))
+            self.last_requests = observed_requests
             return fields
         raise AuthenticationError("Profile session could not be established.")
 

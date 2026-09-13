@@ -17,6 +17,8 @@ Install Chromium with `python -m playwright install chromium`. Tests use invente
 | `test_core.py` | Credential privacy, scope mismatch, overlapping pages, loop/stall detection, crash rollback, pending batches, dynamic union, Unicode/large cells, partial reporting. |
 | `test_runner.py` | Equivalent resumed/uninterrupted records, completed profiles retained, sample limits, failed-profile retry and auth blockers. |
 | `test_cli.py` | Help, missing credentials, offline export without browser imports, single-writer lock. |
+| `test_fast.py` | Observed request templates, shared pacing/cooldown and concurrency cap, disposal, contact privacy, community pagination, cancellation, sample limits, and resume. |
+| `test_fast_integration.py` | Real Playwright async request transport against a loopback-only synthetic server, using invented in-memory session cookies and headers. |
 
 These checks do not establish TigerNet authentication, field coverage, exhaustive enumeration, live throughput, or a correct Google Sheets import.
 

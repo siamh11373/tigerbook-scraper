@@ -66,3 +66,40 @@ def test_lock_prevents_two_writers_and_is_released(tmp_path):
         pass
     with run_lock(tmp_path):
         pass
+
+
+def test_fast_configuration_rejects_unbounded_rate_before_login(tmp_path, capsys):
+    assert main(["--fast", "--requests-per-second", "1000", "--output-dir", str(tmp_path)]) == 3
+    assert "rate ceiling" in capsys.readouterr().err
+
+
+def test_fast_offline_export_uses_separate_scope(tmp_path, monkeypatch):
+    from tigerbook_scraper.models import ListingPage, ProfileRef
+    from tigerbook_scraper.state import State
+
+    state = State(
+        tmp_path / "fast-full/run.sqlite",
+        {
+            "target": "https://example.test",
+            "account": "synthetic",
+            "scope": "fast-full",
+            "limit": None,
+        },
+    )
+    state.save_page(
+        "discovery",
+        None,
+        ListingPage(
+            (ProfileRef("1", "https://example.test/1"),),
+            None,
+            1,
+            False,
+        ),
+    )
+    state.complete("1", {"Name": "Synthetic"})
+    state.note("collection_mode", "direct_requests_fixed_header")
+    state.close()
+    monkeypatch.setenv("TIGERNET_USERNAME", "incomplete-environment")
+    assert main(["--fast", "--export-only", "--output-dir", str(tmp_path)]) == 2
+    assert (tmp_path / "fast-full/profiles.csv").exists()
+    assert not (tmp_path / "full").exists()

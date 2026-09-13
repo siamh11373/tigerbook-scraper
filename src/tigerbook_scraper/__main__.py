@@ -14,6 +14,20 @@ def parser():
     value = argparse.ArgumentParser(description="Resumable TigerNet directory export")
     value.add_argument("--limit", type=int, help="Isolated reviewer run with at most N profiles")
     value.add_argument(
+        "--fast",
+        action="store_true",
+        help="Use observed concurrent requests with an automatic browser comparison",
+    )
+    value.add_argument(
+        "--workers", type=int, default=8, help="Fast-mode in-flight request cap (1–16, default 8)"
+    )
+    value.add_argument(
+        "--requests-per-second",
+        type=float,
+        default=1.0,
+        help="Fast-mode shared rate ceiling (up to 20); ramps up from 1/s",
+    )
+    value.add_argument(
         "--allow-interactive",
         action="store_true",
         help="Open a visible browser and wait up to five minutes for your MFA approval",
@@ -39,6 +53,22 @@ def main(argv=None) -> int:
     state = None
     try:
         scope = scope_name(args.limit)
+        if args.fast:
+            scope = "fast-" + scope
+            if args.inspect or args.check_auth:
+                from .errors import ConfigurationError
+
+                raise ConfigurationError("Use --fast for collection or offline export only.")
+            if not 1 <= args.workers <= 16 or not 0 < args.requests_per_second <= 20:
+                from .errors import ConfigurationError
+
+                raise ConfigurationError(
+                    "Use 1–16 workers and a rate ceiling above 0 and at most 20."
+                )
+        elif args.workers != 8 or args.requests_per_second != 1:
+            from .errors import ConfigurationError
+
+            raise ConfigurationError("Worker and rate options require --fast.")
         directory = args.output_dir / scope
         with run_lock(directory):
             if args.export_only:
@@ -62,6 +92,37 @@ def main(argv=None) -> int:
             contract = None
             if not args.inspect:
                 contract = load_contract(args.site_contract)
+            if args.fast:
+                from .fast import collect_fast
+
+                state = open_state(directory, credentials, scope, args.limit, args.site_contract)
+                try:
+                    collect_fast(
+                        state,
+                        credentials,
+                        contract,
+                        allow_interactive=args.allow_interactive,
+                        limit=args.limit,
+                        workers=args.workers,
+                        ceiling=args.requests_per_second,
+                    )
+                except BaseException as error:
+                    state.note(
+                        "blocker",
+                        "interrupted"
+                        if isinstance(error, KeyboardInterrupt)
+                        else getattr(error, "code", "unexpected_failure"),
+                    )
+                    export_run(state, directory)
+                    raise
+                report = export_run(state, directory)
+                print(
+                    f"Export {report['status']}: {report['rows']} rows, "
+                    f"{report['columns']} columns."
+                )
+                if report["reasons"]:
+                    print("Review report reasons: " + ", ".join(report["reasons"]))
+                return 0 if report["status"] == "complete" else 2
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=not args.allow_interactive)
                 context = browser.new_context()
@@ -96,23 +157,7 @@ def main(argv=None) -> int:
                     from_mapping(adapter.profile(listing.profiles[0]))
                     print("Fresh login verified against directory and profile content.")
                     return 0
-                state = State(
-                    directory / "run.sqlite",
-                    {
-                        "target": TARGET,
-                        "account": credentials.account_key,
-                        "scope": scope,
-                        "limit": args.limit,
-                    },
-                )
-                import hashlib
-
-                digest = hashlib.sha256(args.site_contract.read_bytes()).hexdigest()
-                if state.get("contract_sha256") not in (None, digest):
-                    from .errors import StateMismatch
-
-                    raise StateMismatch("Parser contract changed; use a new output directory.")
-                state.note("contract_sha256", digest)
+                state = open_state(directory, credentials, scope, args.limit, args.site_contract)
                 try:
                     collect(adapter, state, limit=args.limit)
                 except KeyboardInterrupt:
@@ -140,7 +185,7 @@ def main(argv=None) -> int:
         print(f"{error.code}: {error}", file=sys.stderr)
         return 3
     except KeyboardInterrupt:
-        print("Interrupted before collection started.", file=sys.stderr)
+        print("Interrupted. Rerun the same command to continue saved progress.", file=sys.stderr)
         return 130
     except Exception:
         # No raw browser/HTTP exception traces: they may contain secrets or profile data.
@@ -152,6 +197,31 @@ def main(argv=None) -> int:
     finally:
         if state is not None:
             state.close()
+
+
+def open_state(directory, credentials, scope, limit, contract_path):
+    import hashlib
+
+    from .errors import StateMismatch
+
+    state = State(
+        directory / "run.sqlite",
+        {
+            "target": TARGET,
+            "account": credentials.account_key,
+            "scope": scope,
+            "limit": limit,
+        },
+    )
+    try:
+        digest = hashlib.sha256(contract_path.read_bytes()).hexdigest()
+        if state.get("contract_sha256") not in (None, digest):
+            raise StateMismatch("Parser contract changed; use a new output directory.")
+        state.note("contract_sha256", digest)
+        return state
+    except BaseException:
+        state.close()
+        raise
 
 
 if __name__ == "__main__":

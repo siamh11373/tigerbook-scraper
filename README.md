@@ -2,7 +2,7 @@
 
 A Python application for resumable, permitted directory collection and validated UTF-8 CSV export. The repository keeps the assessment's original TigerBook name; the author confirmed **https://tigernet.princeton.edu/** as the target and confirmed bulk collection and sharing permission.
 
-**Status: attended login and expanded inspection succeeded. The observed TigerNet adapter is ready for a limited live validation run.** Full collection and coverage verification remain unfinished. An offline preview contains two successfully parsed profiles; a third is marked incomplete because its saved community response is paginated. There is no full CSV or Google Sheet yet.
+**Status: attended browser collection exported 15 profiles with 57 columns. Concurrent direct-request mode is implemented but awaits its first live run.** Full collection and coverage verification remain unfinished. There is no full CSV or Google Sheet yet.
 
 The public login flow was inspected in a fresh browser on September 13, 2026. It leads to Princeton CAS at `https://fed.princeton.edu/cas/login`. No authenticated directory or profile endpoint has been guessed. Collection requires a parser contract established from actual authenticated observations.
 
@@ -83,11 +83,29 @@ The full run uses `output/full/`; each limit uses `output/sample-N/`. A run cann
 
 Exit codes: `0` means a validated complete collection or successful requested diagnostic; `2` means a valid but partial export; `3` means a blocker; `130` means interruption. Read `report.json` rather than relying on process termination as proof of completeness.
 
+## Faster request-based collection
+
+`--fast` still scrapes the directory. It uses normal browser authentication, captures the actual GET requests for three profiles, and compares direct responses against their rendered reference records before continuing. After this startup, the browser closes and profile fetching uses concurrent requests. Credentials, session cookies, and observed authorization headers stay in process memory and are never written to Git, configuration, or run reports. If the session expires, normal browser authentication reopens; repeated renewal failures without collection progress stop the run.
+
+```bash
+# Full request-based collection, with an explicit throughput ceiling
+python -m tigerbook_scraper.local_env --fast --allow-interactive --workers 16 --requests-per-second 20
+
+# Regenerate the fast full-run export offline
+python -m tigerbook_scraper --fast --export-only
+```
+
+The rate begins at 1 request/second and increases by 1 after each 100 successful responses, up to the chosen ceiling. The default ceiling remains 1; 20 is the implementation's maximum configurable ceiling, not a verified TigerNet service limit. All requests and workers share the same pacing gate. HTTP 429 halves the rate and applies a global `Retry-After` cooldown; persistent throttling and HTTP 403 stop collection. In-flight requests are capped independently by `--workers` (1–16). Ten consecutive profile failures also stop the run for investigation. No speed or same-day completion is claimed before live measurement.
+
+Startup also tries 100 records with the observed `per_page` parameter. It only adopts that size if the response has the requested number of unique IDs, the same total, and includes the reference IDs; otherwise it keeps the original page size. The selected URL is saved locally and reused on resume. Discovery enumerates the observed listing before profile collection to shorten the exposure to last-activity ordering changes. After collection, a second pass discovers changed membership and collects newly discovered IDs. This does not prove exhaustive enumeration. Progress and an evolving time projection print about every ten seconds during active operations. The benchmark is also saved in SQLite. Keep the computer awake and Terminal open. Restart the same command to resume.
+
+Fast output is isolated in `output/fast-full/`, or `output/fast-sample-N/` with `--limit N`. The prior browser sample is unchanged. Fast mode still preserves metadata-labelled fields, repeated employment/education records, contact privacy controls, and paginated communities. Additional badge pages remain an explicit extraction failure. Supplementary header extraction uses a fixed observed subset of name, headline, photo URL, and cover-photo URL; base-object contact fields are excluded because their field-level privacy must be checked in the labelled contact section. Header fields outside that subset can be omitted. This is an explicitly documented departure from exhaustive dynamic field capture, authorized by the author. The report retains `fixed_header_field_subset` and unverified coverage reasons even when all discovered profiles finish.
+
 ## Persistence, retries, and fields
 
 The pipeline is authentication → discovery → SQLite work queue → fetching/extraction → reconciliation → CSV validation. Discovered IDs and the page checkpoint commit together. Profiles use stable source IDs, never names. Records are updated by ID; failed retrievals remain distinct from absent fields.
 
-Collection is sequential. Explicit data fetches and browser navigations are paced at one per second. Transient network errors, HTTP 429, and server errors receive up to four attempts with increasing delays and jitter. `Retry-After` is honored; waits above five minutes stop the run for later resumption. HTTP 403 and persistent rate limiting stop collection. Each expired-session operation allows one supported reauthentication. Structured responses are disposed after parsing.
+The default browser mode is sequential. Explicit data fetches and browser navigations are paced at one per second. Fast mode uses the separate shared gate described above. Transient network errors, HTTP 429, and server errors receive up to four attempts with increasing delays and jitter. `Retry-After` is honored; waits above five minutes stop the run for later resumption. HTTP 403 and persistent rate limiting stop collection. Each expired-session operation allows one supported reauthentication. Structured responses are disposed after parsing.
 
 Browser-generated background requests need inspection before claiming a site-wide request rate. If they produce additional directory/profile calls, the final adapter must pace those too. Check this and stricter service limits before a full run.
 
