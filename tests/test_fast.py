@@ -60,16 +60,19 @@ def test_shared_gate_spaces_requests_and_honors_global_cooldown():
             clock[0] += seconds
             await asyncio.sleep(0)
 
-        gate = Throttle(20, clock=lambda: clock[0], sleep=sleep)
+        gate = Throttle(20, 40, clock=lambda: clock[0], sleep=sleep)
         await gate.wait()
         await gate.wait()
-        assert clock[0] == 1.0
-        for _ in range(100):
+        assert clock[0] == 0.05
+        for _ in range(2000):
             gate.success()
-        assert gate.rate == 2.0
+        assert gate.rate == 22.0
+        gate.failure()
+        assert gate.rate == pytest.approx(17.6)
         gate.cooldown(10)
         await gate.wait()
-        assert clock[0] >= 11.0 and gate.rate == 1.0 and gate.throttles == 1
+        assert clock[0] >= 10.05 and gate.rate == pytest.approx(8.8)
+        assert gate.throttles == 1 and gate.transient_failures == 1
         assert gate.starts == 3
 
     asyncio.run(run())
@@ -91,7 +94,9 @@ class Response:
 
 class Gate:
     rate = 1.0
+    ceiling = 1.0
     starts = throttles = 0
+    transient_failures = 0
 
     async def wait(self):
         self.starts += 1
@@ -102,6 +107,9 @@ class Gate:
     def cooldown(self, delay):
         self.delay = delay
         self.throttles += 1
+
+    def failure(self):
+        self.transient_failures += 1
 
 
 @pytest.mark.parametrize(

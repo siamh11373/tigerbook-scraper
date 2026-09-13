@@ -58,7 +58,7 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
     original_target = fast.TARGET
     monkeypatch.setattr(adapter, "TARGET", target)
     monkeypatch.setattr(fast, "TARGET", target)
-    monkeypatch.setattr(fast, "Throttle", lambda _: Gate())
+    monkeypatch.setattr(fast, "Throttle", lambda _start, _ceiling: Gate())
     for entry in templates.values():
         entry["url"] = entry["url"].replace(original_target, target)
         entry["headers"]["authorization"] = "Bearer synthetic-test-only"
@@ -98,6 +98,7 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
                 setup,
                 {"listing_url": target + "/frontoffice/api/users?page=1&per_page=1"},
                 limit=1,
+                start_rate=1,
                 ceiling=1,
                 progress=lambda _: None,
             )

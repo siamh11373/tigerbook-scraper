@@ -19,13 +19,17 @@ def parser():
         help="Use observed concurrent requests with an automatic browser comparison",
     )
     value.add_argument(
-        "--workers", type=int, default=8, help="Fast-mode in-flight request cap (1–16, default 8)"
+        "--workers", type=int, help="Fast-mode in-flight request cap (1–32, default 32)"
     )
     value.add_argument(
         "--requests-per-second",
         type=float,
-        default=1.0,
-        help="Fast-mode shared rate ceiling (up to 20); ramps up from 1/s",
+        help="Fast-mode starting request rate (default 20/s)",
+    )
+    value.add_argument(
+        "--max-requests-per-second",
+        type=float,
+        help="Fast-mode adaptive request-rate ceiling (default 40/s, maximum 50/s)",
     )
     value.add_argument(
         "--allow-interactive",
@@ -55,17 +59,33 @@ def main(argv=None) -> int:
         scope = scope_name(args.limit)
         if args.fast:
             scope = "fast-" + scope
+            if args.workers is None:
+                args.workers = 32
+            if args.requests_per_second is None:
+                args.requests_per_second = 20.0
+            if args.max_requests_per_second is None:
+                args.max_requests_per_second = 40.0
             if args.inspect or args.check_auth:
                 from .errors import ConfigurationError
 
                 raise ConfigurationError("Use --fast for collection or offline export only.")
-            if not 1 <= args.workers <= 16 or not 0 < args.requests_per_second <= 20:
+            if not (
+                1 <= args.workers <= 32
+                and 0 < args.requests_per_second <= args.max_requests_per_second <= 50
+            ):
                 from .errors import ConfigurationError
 
                 raise ConfigurationError(
-                    "Use 1–16 workers and a rate ceiling above 0 and at most 20."
+                    "Use 1–32 workers and rates where 0 < start <= maximum <= 50."
                 )
-        elif args.workers != 8 or args.requests_per_second != 1:
+        elif any(
+            value is not None
+            for value in (
+                args.workers,
+                args.requests_per_second,
+                args.max_requests_per_second,
+            )
+        ):
             from .errors import ConfigurationError
 
             raise ConfigurationError("Worker and rate options require --fast.")
@@ -104,7 +124,8 @@ def main(argv=None) -> int:
                         allow_interactive=args.allow_interactive,
                         limit=args.limit,
                         workers=args.workers,
-                        ceiling=args.requests_per_second,
+                        start_rate=args.requests_per_second,
+                        ceiling=args.max_requests_per_second,
                     )
                 except BaseException as error:
                     state.note(

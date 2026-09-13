@@ -119,16 +119,14 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
 class Throttle:
     """One shared request-start gate, with gradual ramp-up and global 429 cooldown."""
 
-    def __init__(self, ceiling=1.0, *, clock=time.monotonic, sleep=asyncio.sleep):
-        if not 0 < ceiling <= 20:
-            raise ConfigurationError(
-                "Request-rate ceiling must be greater than zero and at most 20."
-            )
-        self.ceiling, self.rate = ceiling, min(1.0, ceiling)
+    def __init__(self, start=20.0, ceiling=40.0, *, clock=time.monotonic, sleep=asyncio.sleep):
+        if not 0 < start <= ceiling <= 50:
+            raise ConfigurationError("Request rates must satisfy 0 < start <= maximum <= 50.")
+        self.ceiling, self.rate = ceiling, start
         self.clock, self.sleep = clock, sleep
         self.next_at = self.blocked_until = 0.0
         self.lock = asyncio.Lock()
-        self.starts = self.successes = self.throttles = 0
+        self.starts = self.successes = self.throttles = self.transient_failures = 0
 
     async def wait(self):
         async with self.lock:
@@ -139,9 +137,14 @@ class Throttle:
 
     def success(self):
         self.successes += 1
-        if self.successes >= 100:
-            self.rate = min(self.ceiling, self.rate + 1)
+        if self.successes >= 2000:
+            self.rate = min(self.ceiling, self.rate + 2)
             self.successes = 0
+
+    def failure(self):
+        self.transient_failures += 1
+        self.successes = 0
+        self.rate = max(0.25, self.rate * 0.8)
 
     def cooldown(self, seconds):
         self.throttles += 1
@@ -185,6 +188,8 @@ class Client:
                             delay = max(delay, requested)
                         if status == 429:
                             self.throttle.cooldown(delay)
+                        else:
+                            self.throttle.failure()
                         if delay > 300 or (status == 429 and attempt == 3):
                             raise AccessBlocked("Server throttling requires a later resume.")
                         if attempt == 3:
@@ -201,6 +206,7 @@ class Client:
                         self.throttle.success()
                         return value
             except PlaywrightError:
+                self.throttle.failure()
                 if attempt == 3:
                     raise FetchError("Network operation failed after bounded retries.") from None
             finally:
@@ -296,7 +302,7 @@ async def collect_direct(
         progress(
             f"Discovered {counts['discovered']}; completed {counts['complete']}; "
             f"failed {counts['failed']}; {rate:.2f} profiles/s; "
-            f"request ceiling now {client.throttle.rate:g}/s; "
+            f"request rate now {client.throttle.rate:g}/{client.throttle.ceiling:g}/s; "
             f"429s {client.throttle.throttles}{eta}"
         )
         state.note(
@@ -306,7 +312,9 @@ async def collect_direct(
                 "elapsed_seconds": elapsed,
                 "request_starts": client.throttle.starts,
                 "http_429_count": client.throttle.throttles,
+                "transient_request_failures": client.throttle.transient_failures,
                 "current_requests_per_second": client.throttle.rate,
+                "maximum_requests_per_second": client.throttle.ceiling,
                 "interpretation": "includes discovery and collection; excludes browser startup",
             },
         )
@@ -429,7 +437,15 @@ async def choose_listing(client, original, total, sample_ids):
 
 
 async def session_run(
-    state, setup, contract, *, limit=None, workers=8, ceiling=1.0, progress=print
+    state,
+    setup,
+    contract,
+    *,
+    limit=None,
+    workers=32,
+    start_rate=20.0,
+    ceiling=40.0,
+    progress=print,
 ):
     from playwright.async_api import async_playwright
 
@@ -438,7 +454,7 @@ async def session_run(
             storage_state=setup["session"], user_agent=setup.get("user_agent")
         )
         try:
-            throttle = Throttle(ceiling)
+            throttle = Throttle(start_rate, ceiling)
             client = Client(request, throttle, workers)
             profiles = DirectProfiles(client, setup["templates"], setup["base_keys"])
             for ref, expected in setup["references"]:
@@ -491,16 +507,15 @@ def collect_fast(
     *,
     allow_interactive=False,
     limit=None,
-    workers=8,
-    ceiling=1.0,
+    workers=32,
+    start_rate=20.0,
+    ceiling=40.0,
     progress=print,
 ):
     if contract.get("mode") != "tigernet":
         raise ConfigurationError("Fast mode requires the observed TigerNet contract.")
-    if not 1 <= workers <= 16 or not 0 < ceiling <= 20:
-        raise ConfigurationError(
-            "Use 1–16 workers and a request-rate ceiling above 0 and at most 20."
-        )
+    if not 1 <= workers <= 32 or not 0 < start_rate <= ceiling <= 50:
+        raise ConfigurationError("Use 1–32 workers and rates where 0 < start <= maximum <= 50.")
     state.note("blocker", None)
     state.retry_failed()
     state.note("collection_mode", "direct_requests_fixed_header")
@@ -525,6 +540,7 @@ def collect_fast(
                     contract,
                     limit=limit,
                     workers=workers,
+                    start_rate=start_rate,
                     ceiling=ceiling,
                     progress=progress,
                 )

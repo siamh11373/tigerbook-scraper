@@ -1,11 +1,11 @@
+import pytest
+
 from tigerbook_scraper.__main__ import main
 from tigerbook_scraper.errors import ConfigurationError
 from tigerbook_scraper.locking import run_lock
 
 
 def test_help_does_not_need_credentials(capsys):
-    import pytest
-
     with pytest.raises(SystemExit) as result:
         main(["--help"])
     assert result.value.code == 0
@@ -70,7 +70,20 @@ def test_lock_prevents_two_writers_and_is_released(tmp_path):
 
 def test_fast_configuration_rejects_unbounded_rate_before_login(tmp_path, capsys):
     assert main(["--fast", "--requests-per-second", "1000", "--output-dir", str(tmp_path)]) == 3
-    assert "rate ceiling" in capsys.readouterr().err
+    assert "start <= maximum" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        ("--workers", "0"),
+        ("--requests-per-second", "0"),
+        ("--max-requests-per-second", "0"),
+    ],
+)
+def test_fast_configuration_rejects_explicit_zero(option, tmp_path, capsys):
+    assert main(["--fast", *option, "--output-dir", str(tmp_path)]) == 3
+    assert "start <= maximum" in capsys.readouterr().err
 
 
 def test_fast_offline_export_uses_separate_scope(tmp_path, monkeypatch):

@@ -150,3 +150,9 @@ directory integration remain unverified at that checkpoint. These changes remain
 - Employment, education, contact, social, address, and community structures are promoted into their named columns. `Record N` prefixes align values from the same repeated source record across columns. Unexpected native, custom, employer, institution, and community attributes become additional columns. The raw companion remains unchanged and lossless.
 - Offline regeneration of the 15-profile sample produced 15 rows and 68 unique columns. The 39 required columns appear first. Thirty-seven required fields have at least one accessible value in the sample. `Family Name (if different from current name)` and `Marital Status` have no accessible sample value; the inspected schema marked those entries restricted, so their columns remain blank rather than exporting restricted backend values.
 - The report now contains `known_field_coverage`, including the required columns, per-field profiles-with-values counts, and fields without values. This distinguishes checking for a field from actually observing an accessible value. No new authenticated collection was required for this export-only change, and THINKING.md remains unchanged.
+
+### Higher adaptive starting rate
+
+- The author requested starting at 20 requests/second and scaling upward when no problems occur. Fast mode now defaults to 20/s with 32 in-flight request slots and a 40/s ceiling.
+- The global gate increases by 2/s after 2,000 consecutive successful responses. A transient network or server failure resets that streak and reduces the rate by 20 percent. HTTP 429 halves the rate and applies the shared cooldown. The configurable hard maximum is 50/s.
+- These are client-side limits, not evidence of a supported TigerNet rate. The first live run must establish actual throughput and throttling behavior. Checkpointing and explicit partial reports remain unchanged.
