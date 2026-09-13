@@ -143,7 +143,7 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
 class Throttle:
     """One shared request-start gate, with gradual ramp-up and global 429 cooldown."""
 
-    def __init__(self, start=2.0, ceiling=40.0, *, clock=time.monotonic, sleep=asyncio.sleep):
+    def __init__(self, start=2.0, ceiling=6.0, *, clock=time.monotonic, sleep=asyncio.sleep):
         if not 0 < start <= ceiling <= 50:
             raise ConfigurationError("Request rates must satisfy 0 < start <= maximum <= 50.")
         self.ceiling, self.rate = ceiling, start
@@ -552,7 +552,7 @@ async def session_run(
     limit=None,
     workers=32,
     start_rate=2.0,
-    ceiling=40.0,
+    ceiling=6.0,
     progress=print,
 ):
     from playwright.async_api import async_playwright
@@ -667,7 +667,7 @@ def collect_fast(
     limit=None,
     workers=32,
     start_rate=2.0,
-    ceiling=40.0,
+    ceiling=6.0,
     browser_sessions=1,
     progress=print,
 ):

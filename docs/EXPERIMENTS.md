@@ -176,3 +176,9 @@ directory integration remain unverified at that checkpoint. These changes remain
 - A two-session mode was added for the requested browser-parallel experiment. It authenticates each session through the same supported CAS and MFA flow, then keeps both session states and observed request headers only in memory.
 - Discovery and SQLite writing remain single-owner operations. Numeric profile IDs are deterministically divided between the two request contexts, preventing duplicate extraction and preserving the existing resume/export contract.
 - Both sessions share one aggregate request-rate controller, request-slot cap, and cooldown. A 429 from either session pauses both, so this experiment does not multiply the configured safety limits. Comparing it with a one-session run may indicate whether the second authenticated connection improves throughput, but it cannot establish whether TigerNet throttles by session, account, or IP. This is capped at two sessions, requires two MFA approvals, and makes no claim of higher throughput until measured live.
+
+### Two-session live result
+
+- Both attended CAS sessions authenticated successfully and passed direct-request comparison. The existing full-run checkpoint resumed at 131,890 discovered and 95 completed profiles.
+- The aggregate controller climbed from 2 to 6 requests/second without a 429. After it reached 8 requests/second, both sessions encountered a shared burst. The controller backed down through 5, 2.5, 1.25, 0.625, and 0.3125 requests/second, then stopped on persistent throttling after 58 HTTP 429 responses.
+- The run saved 58 new profiles, ending at 153 completed and zero profile failures. This supports using 6 requests/second as the next conservative ceiling. It does not prove whether the limiting scope is the account, IP address, or another shared server policy, but a second session did not provide an independent allowance in this run.

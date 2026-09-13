@@ -29,7 +29,7 @@ def parser():
     value.add_argument(
         "--max-requests-per-second",
         type=float,
-        help="Fast-mode adaptive request-rate ceiling (default 40/s, maximum 50/s)",
+        help="Fast-mode adaptive request-rate ceiling (default 6/s, maximum 50/s)",
     )
     value.add_argument(
         "--browser-sessions",
@@ -69,7 +69,7 @@ def main(argv=None) -> int:
             if args.requests_per_second is None:
                 args.requests_per_second = 2.0
             if args.max_requests_per_second is None:
-                args.max_requests_per_second = 40.0
+                args.max_requests_per_second = 6.0
             if args.browser_sessions is None:
                 args.browser_sessions = 1
             if args.inspect or args.check_auth:
