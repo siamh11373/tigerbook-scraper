@@ -7,18 +7,24 @@ import tempfile
 from pathlib import Path
 
 from .fields import csv_value, needs_text_import
+from .presentation import column_order, headings, spreadsheet_value
 from .state import State, now
 
 
-def export_run(state: State, directory: Path) -> dict:
+def _export_csv(state: State, directory: Path, *, readable: bool) -> dict:
     directory.mkdir(parents=True, exist_ok=True)
     keys = set()
     for _, _, fields in state.records():
         keys.update(fields)
     # Source fields are namespaced so a real "profile_id" can never overwrite metadata.
-    keys = sorted(keys)
-    headers = ["profile_id", "profile_url", *(f"field/{key}" for key in keys)]
-    destination = directory / "profiles.csv"
+    keys = sorted(keys, key=column_order) if readable else sorted(keys)
+    headers = (
+        headings(keys)
+        if readable
+        else ["profile_id", "profile_url", *(f"field/{key}" for key in keys)]
+    )
+    render = spreadsheet_value if readable else csv_value
+    destination = directory / ("profiles.csv" if readable else "profiles.raw.csv")
     fd, temporary = tempfile.mkstemp(prefix=".profiles-", suffix=".tmp", dir=directory)
     text_sensitive = 0
     max_cell_characters = 0
@@ -28,7 +34,11 @@ def export_run(state: State, directory: Path) -> dict:
             writer = csv.writer(handle)
             writer.writerow(headers)
             for profile_id, url, fields in state.records():
-                values = [profile_id, url, *(csv_value(fields.get(key)) for key in keys)]
+                values = [
+                    render(profile_id),
+                    render(url),
+                    *(render(fields.get(key)) for key in keys),
+                ]
                 text_sensitive += sum(needs_text_import(value) for value in values)
                 max_cell_characters = max(max_cell_characters, *(len(value) for value in values))
                 writer.writerow(values)
@@ -42,7 +52,11 @@ def export_run(state: State, directory: Path) -> dict:
             if next(reader) != headers:
                 raise ValueError("CSV header validation failed.")
             for profile_id, url, fields in state.records():
-                expected = [profile_id, url, *(csv_value(fields.get(key)) for key in keys)]
+                expected = [
+                    render(profile_id),
+                    render(url),
+                    *(render(fields.get(key)) for key in keys),
+                ]
                 if next(reader, None) != expected:
                     raise ValueError("CSV record validation failed.")
             if next(reader, None) is not None:
@@ -51,6 +65,25 @@ def export_run(state: State, directory: Path) -> dict:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+    digest = hashlib.sha256()
+    with destination.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return {
+        "rows": rows,
+        "columns": len(headers),
+        "csv_roundtrip_verified": True,
+        "csv_sha256": digest.hexdigest(),
+        "text_sensitive_cells": text_sensitive,
+        "max_cell_characters": max_cell_characters,
+        "sheet_cells_required": (rows + 1) * len(headers),
+        "fits_google_sheets_10m_cells": (rows + 1) * len(headers) <= 10_000_000,
+    }
+
+
+def export_run(state: State, directory: Path) -> dict:
+    raw = _export_csv(state, directory, readable=False)
+    display = _export_csv(state, directory, readable=True)
     reasons = []
     counts = state.counts()
     if state.get("identity")["limit"] is not None:
@@ -73,24 +106,15 @@ def export_run(state: State, directory: Path) -> dict:
         reasons.append("empty_population_requires_review")
     if not state.get("field_fidelity_verified", False):
         reasons.append("field_fidelity_not_verified")
-    digest = hashlib.sha256()
-    with destination.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
     report = {
+        **display,
+        "raw_export": {"file": "profiles.raw.csv", **raw},
+        "display_format": "labelled_multiline_v1",
         "status": "complete" if not reasons else "partial",
         "reasons": sorted(set(reasons)),
         "counts": counts,
         "started_at": state.get("started_at"),
         "exported_at": now(),
-        "rows": rows,
-        "columns": len(headers),
-        "csv_roundtrip_verified": True,
-        "csv_sha256": digest.hexdigest(),
-        "text_sensitive_cells": text_sensitive,
-        "max_cell_characters": max_cell_characters,
-        "sheet_cells_required": (rows + 1) * len(headers),
-        "fits_google_sheets_10m_cells": (rows + 1) * len(headers) <= 10_000_000,
         "manual_sheet_import_verified": False,
         "scope": state.get("identity")["scope"],
         "benchmark": state.get("benchmark"),

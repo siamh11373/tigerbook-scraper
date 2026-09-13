@@ -91,17 +91,18 @@ Collection is sequential. Explicit data fetches and browser navigations are pace
 
 Browser-generated background requests need inspection before claiming a site-wide request rate. If they produce additional directory/profile calls, the final adapter must pace those too. Check this and stricter service limits before a full run.
 
-Field names come from the observed profile object or recognized section/label/value structures. There is no fixed profile-field list. Section/label separators are escaped; original labels are retained. Repeated and nested values use JSON inside CSV cells. Links and image URLs inside recognized fields are preserved. Unknown structures raise an extraction problem. Private or inaccessible fields are outside scope.
+Field names come from the observed profile object or recognized section/label/value structures. There is no fixed profile-field list. Section/label separators are escaped; original labels are retained in SQLite and the raw export. The readable export formats repeated and nested values as labelled multiline text; the raw companion retains JSON inside cells. Links and image URLs inside recognized fields are preserved. Unknown structures raise an extraction problem. Private or inaccessible fields are outside scope.
 
 ## Export and evidence
 
 Each run directory contains:
 
 - `run.sqlite`: durable IDs, URLs, attempts, outcomes, fields, and checkpoints.
-- `profiles.csv`: deterministic columns and rows, one row per successfully extracted ID.
+- `profiles.csv`: readable section headings, name columns first, and labelled multiline values. One row per successfully extracted ID. Enable **Wrap text** and adjust column widths in your spreadsheet; CSV cannot store widths, row heights, or styling.
+- `profiles.raw.csv`: the previous machine-readable format, with original field keys and reversible JSON for nested values. Use this file for downstream code that depended on the original CSV format.
 - `report.json`: status, unresolved counts, source totals, audits, timing, CSV hash, import cautions, and partial-run reasons.
 
-CSV headers include `profile_id`, `profile_url`, and the sorted union of discovered field keys prefixed with `field/`. Missing values produce empty cells. CSV escaping preserves Unicode, commas, quotes, and multiline text. The exporter streams records and verifies every exported cell against SQLite before replacing the CSV atomically.
+Both files use the union of discovered fields with deterministic ordering and collision-safe headings. The raw headers include `profile_id`, `profile_url`, and field keys prefixed with `field/`. The readable headers decode internal escapes and separate sections from labels with a middle dot. Repeated records are numbered within a cell to retain their associations. Missing values produce empty cells. CSV escaping preserves Unicode, commas, quotes, and multiline text. Each file is streamed, verified against its rendering of SQLite records, and replaced atomically. The report includes separate hashes and validation metrics for both files.
 
 A complete report requires finished discovery and reconciliation, enumeration evidence, matching accessible totals when available, consistent ID membership, no unresolved profiles, and field-coverage evidence plus sample checks. Limited runs are always partial. Empty populations require review. The observation of 131,892 members is a reference only; it is not an expected count in code.
 
@@ -111,7 +112,7 @@ Coverage spans a collection window, not an atomic source snapshot. Membership ch
 
 Upload the CSV manually to an approved destination. Google Sheets permits [up to 10 million cells or 18,278 columns](https://support.google.com/drive/answer/37603). The report includes required cells, columns, maximum cell length, and cells resembling formulas or numbers. Check current service limits before import. If the dataset does not fit, agree on an alternative instead of truncating it.
 
-Preserve values as text during import, including disabling conversion to numbers, dates, or formulas when offered. CSV quoting alone does not prevent formula evaluation or numeric conversion. Verify leading zeros, `+` prefixes, formula-like strings, dates, Unicode, and multiline values. Keep the CSV and database as the source of truth. The report leaves `manual_sheet_import_verified` false; a human must document import/sharing checks and provide the actual Sheet link.
+Preserve values as text during import, including disabling conversion to numbers, dates, or formulas when offered. CSV quoting alone does not prevent formula evaluation or numeric conversion. The readable file prefixes formula-like and leading-zero values with an apostrophe; some spreadsheet importers display that apostrophe literally. The raw file retains the original strings without that presentation change. Verify leading zeros, `+` prefixes, formula-like strings, dates, Unicode, and multiline values. Keep the raw CSV and database as the source of truth. The report leaves `manual_sheet_import_verified` false; a human must document import/sharing checks and provide the actual Sheet link.
 
 ## Development and remaining acceptance work
 

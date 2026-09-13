@@ -152,7 +152,7 @@ def test_export_union_roundtrip_and_complete_status(state, tmp_path):
     state.complete("2", second)
     state.note("field_fidelity_verified", True)
     report = export_run(state, tmp_path / "out")
-    with (tmp_path / "out/profiles.csv").open(newline="", encoding="utf-8") as f:
+    with (tmp_path / "out/profiles.raw.csv").open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert rows[0]["field/Name"] == first["Name"]
     assert rows[0]["field/Empty"] == ""
@@ -162,7 +162,7 @@ def test_export_union_roundtrip_and_complete_status(state, tmp_path):
     assert rows[1]["field/profile_id"] == "actual source field"
     assert rows[1]["field/Formula-like"] == "=1+1"
     assert report["status"] == "complete"
-    assert report["text_sensitive_cells"] == 2
+    assert report["raw_export"]["text_sensitive_cells"] == 2
     assert report["manual_sheet_import_verified"] is False
 
 

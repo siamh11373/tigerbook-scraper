@@ -118,3 +118,9 @@ directory integration remain unverified at that checkpoint. These changes remain
 
 - The author authorized publishing the implementation with its synthetic tests, while keeping all real credentials, sessions, and collected data local. Earlier no-push statements above describe those earlier checkpoints.
 - The author selected a 15-profile validation run. Updated the current instructions to use isolated `output/sample-15/` state. No live result is claimed for this run yet.
+
+### Readable export after the 15-profile run
+
+- The local run exported 15 profiles with 57 columns and no recorded profile failures. Three additional discovered profiles remain pending at the sample limit. Coverage and independent field fidelity remain unverified.
+- The author found the JSON-filled CSV difficult to read. Added a presentation layer: decoded section headings, name columns first, line-separated lists, and numbered nested records. It applies to every discovered field without changing extraction or stored records.
+- `profiles.csv` now contains readable values; `profiles.raw.csv` retains the previous exact keys and structured JSON representation. Both are verified against SQLite before replacement. No new dependency or authenticated request is needed to regenerate these files.
