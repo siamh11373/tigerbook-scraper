@@ -182,3 +182,18 @@ directory integration remain unverified at that checkpoint. These changes remain
 - Both attended CAS sessions authenticated successfully and passed direct-request comparison. The existing full-run checkpoint resumed at 131,890 discovered and 95 completed profiles.
 - The aggregate controller climbed from 2 to 6 requests/second without a 429. After it reached 8 requests/second, both sessions encountered a shared burst. The controller backed down through 5, 2.5, 1.25, 0.625, and 0.3125 requests/second, then stopped on persistent throttling after 58 HTTP 429 responses.
 - The run saved 58 new profiles, ending at 153 completed and zero profile failures. This supports using 6 requests/second as the next conservative ceiling. It does not prove whether the limiting scope is the account, IP address, or another shared server policy, but a second session did not provide an independent allowance in this run.
+### Raw HTML feasibility probe
+
+- Added a bounded probe with fresh attended authentication and an independent protected
+  directory check. It samples the smallest, middle, and largest saved completed records
+  by serialized record length, then fetches their observed profile URLs as raw HTML.
+- Live value-presence results: 3/20, 3/20, and 2/32 fields with string values were present.
+  No standalone JSON script blocks were found in these three responses. This approach
+  did not establish a complete single-response record and was not enabled for collection.
+- The references were saved permitted records, not contemporaneous five-response fetches.
+  Source changes and JavaScript-specific encodings remain potential confounders. Presence
+  checks do not establish field associations, numeric fidelity, privacy, or exhaustive
+  coverage. Full-record verification remains false even when all strings match.
+- The database is opened read-only. No raw HTML, credentials, or session state is saved;
+  the local ignored report contains counts and missing field labels. Synthetic tests cover
+  empty shells, escaped JSON Unicode, repeated records, and false completeness claims.

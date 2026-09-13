@@ -23,6 +23,20 @@ Playwright is the only production dependency. SQLite and CSV handling use the st
 
 ## Credentials and first live checkpoint
 
+### Raw HTML feasibility probe
+
+Run `python -u -m tigerbook_scraper.html_probe` from the repository root to test whether
+one authenticated HTML response contains the values already captured for three saved
+profiles (small, median, and large records). This uses `.env.local` or existing credential
+configuration and requires one attended MFA login. It reads the full-run database in
+read-only mode and writes an ignored report under `output/html-probe/`.
+
+The probe checks text, link attributes, inline scripts, and standalone JSON script blocks.
+It prints aggregate counts only. Missing values reject the current raw-HTML approach for
+that reference; encoded JavaScript state and source changes may require further inspection.
+Even a perfect value-presence match does not prove field labels, associations, permissions,
+numeric values, or complete coverage. It never substitutes this diagnostic for collection.
+
 For credentials held only in the running process, use this launcher from your terminal:
 
 ```bash
