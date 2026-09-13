@@ -31,7 +31,16 @@ python -m tigerbook_scraper.local_env --inspect --allow-interactive
 
 It prompts for your NetID and password with both inputs hidden, sets `TIGERNET_USERNAME` and `TIGERNET_PASSWORD` for the scraper process, and clears those assignments when the run ends. Values are not written to a file or entered as shell commands. Your parent shell is unchanged. Environment variables are not encrypted storage and can be accessible to processes with sufficient privileges. The launcher refuses noninteractive or echoed input.
 
-Replace `--inspect` with other scraper arguments when the site integration is ready. This is credential configuration, not a manual CAS login or an MFA workaround. A new invocation prompts again. For already configured environment variables, use the ordinary `python -m tigerbook_scraper` commands below.
+For an attended run launched by another local process, create the ignored `.env.local` file in the repository root:
+
+```dotenv
+TIGERNET_USERNAME=
+TIGERNET_PASSWORD=
+```
+
+The same launcher reads these two keys without executing the file as shell code and clears them from its process when the run ends. The file stores plaintext credentials on disk. Restrict it to your OS account with `chmod 600 .env.local`, keep it out of screenshots and AI prompts, and delete it when the collection is finished.
+
+Replace `--inspect` with other scraper arguments when the site integration is ready. This is credential configuration, not a manual CAS login or an MFA workaround. Without `.env.local` or configured environment variables, a new invocation prompts again. For already configured environment variables, use the ordinary `python -m tigerbook_scraper` commands below.
 
 The existing ignored JSON credential-file option is still supported, but it stores plaintext on disk. If you choose that option, create `credentials.local.json` locally:
 
