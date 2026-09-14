@@ -1,6 +1,6 @@
 import pytest
 
-from tigerbook_scraper.errors import AuthenticationError, ExtractionError
+from tigerbook_scraper.errors import AuthenticationError, DiscoveryError, ExtractionError
 from tigerbook_scraper.export import export_run
 from tigerbook_scraper.models import ListingPage, ProfileRef
 from tigerbook_scraper.runner import collect
@@ -127,4 +127,39 @@ def test_resume_after_final_record_commit_recovers_report_flag(tmp_path, monkeyp
     monkeypatch.setattr(state, "complete", save)
     collect(SingleProfile(), state, progress=lambda _: None)
     assert export_run(state, tmp_path / "out")["status"] == "complete"
+    state.close()
+
+
+def test_count_mismatch_does_not_prevent_reconciliation_and_missing_profile_collection(tmp_path):
+    state = new_state(tmp_path / "run.sqlite")
+
+    class ChangingListing(SyntheticAdapter):
+        passes = 0
+
+        def list_page(self, cursor):
+            self.passes += 1
+            ids = ["1", "2"] if self.passes == 1 else ["1", "2", "3"]
+            return ListingPage(
+                tuple(ProfileRef(i, f"https://example.test/{i}") for i in ids),
+                None,
+                3,
+                True,
+            )
+
+    adapter = ChangingListing()
+    with pytest.raises(DiscoveryError):
+        collect(adapter, state, progress=lambda _: None)
+    assert adapter.passes == 2
+    assert adapter.fetched == ["1", "2", "3"]
+    assert state.checkpoint("reconciliation")["done"]
+    report = export_run(state, tmp_path / "out")
+    assert report["status"] == "partial"
+    assert "discovery_count_mismatch" in report["reasons"]
+    assert "reconciliation_count_mismatch" not in report["reasons"]
+    # A restart preserves both enumerations and the completed records, without
+    # claiming that the original discovery-count discrepancy was explained.
+    with pytest.raises(DiscoveryError):
+        collect(adapter, state, progress=lambda _: None)
+    assert adapter.passes == 2
+    assert len(adapter.fetched) == 3
     state.close()

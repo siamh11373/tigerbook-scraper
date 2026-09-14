@@ -79,6 +79,7 @@ def collect(adapter: Adapter, state: State, *, limit=None, progress=print) -> No
                 )
         save_benchmark()
 
+    mismatched_phases = []
     for phase in ("discovery", "reconciliation"):
         process_pending()
         if limit is not None and state.counts()["complete"] >= limit:
@@ -92,8 +93,12 @@ def collect(adapter: Adapter, state: State, *, limit=None, progress=print) -> No
                 return
         total = state.get(f"total:{phase}")
         if total is not None and total != state.membership_count(phase):
-            raise DiscoveryError("The listing ended before its reported population was reconciled.")
+            # Reconciliation may discover IDs missed by a changing first-pass ordering.
+            # Keep the mismatch as a failure, but do not prevent that second enumeration.
+            mismatched_phases.append(phase)
     process_pending()
+    if mismatched_phases:
+        raise DiscoveryError("The listing ended before its reported population was reconciled.")
     # Recover a crash after the last record committed but before its run flag did.
     counts = state.counts()
     if not counts["pending"] and not counts["failed"] and state.get("audit_count", 0) > 0:

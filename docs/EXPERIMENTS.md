@@ -291,3 +291,22 @@ directory integration remain unverified at that checkpoint. These changes remain
   The browser/offline suite passed 147 tests; six credential-loader tests passed separately
   in the sandbox. No production dependency was added. Live full Chrome progress remains
   to be established after authentication; the full collection goal is not complete.
+
+### Live Chrome progress and deferred count-mismatch handling
+
+- The full Chrome process authenticated and advanced from 202 to 222 completed profiles
+  with zero recorded failures at this checkpoint. No Chrome cooldown was recorded. This
+  short observation does not establish sustained throughput for the full population.
+- A transaction-consistent local backup exported 221 rows and 69 columns, passing CSV
+  readback against the saved records. Additional extracted fields expanded the column union.
+  The report remains partial for unfinished collection/reconciliation and unverified coverage
+  and field fidelity. The alternate-family-name presentation column had no populated value.
+- Inspection found that the browser runner raised on a discovery-count mismatch before
+  attempting reconciliation. Deferred that error until both enumeration passes and their
+  pending profiles have been processed. Count validation is retained: a mismatch still
+  raises and produces a partial report. A synthetic changing-listing test proves the second
+  pass collects the previously missed ID and preserves the discrepancy across restart.
+- Twenty-five runner/core tests passed, with Ruff and whitespace checks passing. The already
+  running Chrome process was not restarted; it will retain its loaded runner until its next
+  normal restart. THINKING.md, real data, credentials, and session material were not changed
+  or included in the public commit.
