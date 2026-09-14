@@ -46,7 +46,7 @@ def test_community_count_mismatch_does_not_pass():
         )
 
 
-def test_listing_uses_source_ids_and_leaves_coverage_unproven():
+def test_listing_uses_source_ids_and_contract_controls_field_coverage_evidence():
     fetcher = SimpleNamespace(
         get=lambda _: (
             json.dumps({"users": [{"id": 1}, {"id": 2}], "total_items": 3}),
@@ -60,6 +60,16 @@ def test_listing_uses_source_ids_and_leaves_coverage_unproven():
     assert [ref.id for ref in result.profiles] == ["1", "2"]
     assert parse_qs(urlsplit(result.next_cursor).query)["page"] == ["2"]
     assert not result.exhaustive
+    assert not adapter.field_coverage_verified
+    verified = TigerNetAdapter(
+        None,
+        fetcher,
+        {
+            "listing_url": TARGET + "/frontoffice/api/users?page=1&per_page=2",
+            "field_coverage_evidence": "Author-verified source comparison",
+        },
+    )
+    assert verified.field_coverage_verified
 
 
 def test_response_matching_checks_subject_id_not_stale_route_prefix():

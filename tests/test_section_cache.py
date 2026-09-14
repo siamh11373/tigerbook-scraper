@@ -97,7 +97,7 @@ def profile_harness(cache, values, get):
     async def request(url, headers=None):
         return await get(urls[url], values)
 
-    return DirectProfiles(SimpleNamespace(get=request), templates, {"name"}, cache=cache)
+    return DirectProfiles(SimpleNamespace(get=request), templates, cache=cache)
 
 
 def profile_values():
@@ -156,6 +156,7 @@ def test_direct_profile_base_change_invalidates_cached_sections():
         for kind in ("base", "header", "body", "topics", "badges"):
             cache.put("1", kind, values[kind])
         values["base"]["name"] = "Changed"
+        values["header"]["header"]["data"][0]["value"] = "Changed"
         values["body"]["center"][0]["data"][0]["value"] = "Updated"
         calls = []
 

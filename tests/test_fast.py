@@ -21,7 +21,6 @@ from tigerbook_scraper.fast import (
     Throttle,
     collect_direct,
     observed_templates,
-    stabilize_base_keys,
     together,
 )
 from tigerbook_scraper.models import ProfileRef
@@ -230,7 +229,7 @@ def test_direct_profiles_preserve_sections_and_complete_community_pages():
                 return {"topics": [{"id": 2}], "page": 2, "total_items": 2, "has_next_page": False}
             return data[url]
 
-        profiles = DirectProfiles(SimpleNamespace(get=get), templates, {"name"})
+        profiles = DirectProfiles(SimpleNamespace(get=get), templates)
         result = await profiles.profile(ProfileRef("1", TARGET + "/users/1"))
         assert result["Profile/name"] == "Synthetic"
         assert result["Custom/Brand new field"] == "東京"
@@ -299,18 +298,6 @@ def test_session_pool_rejects_separate_rate_or_worker_limits():
             ],
             profiles,
         )
-
-
-def test_base_keys_are_stable_across_sessions_and_resumes():
-    setups = [{"base_keys": {"name"}}, {"base_keys": {"headline", "photo_url"}}]
-    assert stabilize_base_keys(setups) == {"name", "headline", "photo_url"}
-    assert all(item["base_keys"] == {"name", "headline", "photo_url"} for item in setups)
-
-    assert stabilize_base_keys(setups, ["name", "cover_picture_url", "private_value"]) == {
-        "name",
-        "cover_picture_url",
-    }
-    assert all(item["base_keys"] == {"name", "cover_picture_url"} for item in setups)
 
 
 def test_pending_workers_obey_limit_and_resume_without_duplicates(tmp_path):
@@ -484,7 +471,7 @@ def test_repeated_session_failure_stops_and_clears_ephemeral_setup(tmp_path, mon
     setups = []
 
     def bootstrap(*args, **kwargs):
-        value = {"session": "synthetic-session", "base_keys": set()}
+        value = {"session": "synthetic-session"}
         setups.append(value)
         return value
 
@@ -496,6 +483,36 @@ def test_repeated_session_failure_stops_and_clears_ephemeral_setup(tmp_path, mon
     with pytest.raises(AuthenticationError, match="renewal"):
         fast.collect_fast(state, None, {"mode": "tigernet"}, progress=lambda _: None)
     assert len(setups) == 2 and setups == [{}, {}]
+    assert state.get("collection_mode") == "direct_requests_dynamic_header"
+    assert state.get("base_field_strategy") == "per_profile_permitted_header_values"
+    state.close()
+
+
+def test_fixed_header_checkpoint_is_marked_mixed_when_resumed(tmp_path, monkeypatch):
+    from tigerbook_scraper import fast
+
+    state = State(
+        tmp_path / "run.sqlite",
+        {
+            "target": TARGET,
+            "account": "synthetic",
+            "scope": "fast-full",
+            "limit": None,
+        },
+    )
+    state.note("collection_mode", "direct_requests_fixed_header")
+
+    def stop(*args, **kwargs):
+        raise AuthenticationError("Synthetic expiry")
+
+    monkeypatch.setattr(fast, "bootstrap", stop)
+    with pytest.raises(AuthenticationError):
+        fast.collect_fast(state, None, {"mode": "tigernet"}, progress=lambda _: None)
+    assert state.get("collection_mode") == "direct_requests_fixed_then_dynamic_header"
+    assert (
+        state.get("base_field_strategy")
+        == "author_verified_fixed_then_per_profile_permitted_header_values"
+    )
     state.close()
 
 

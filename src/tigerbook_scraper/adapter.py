@@ -62,6 +62,19 @@ def load_contract(path: Path) -> dict:
         raise ConfigurationError("Exhaustive discovery requires documented enumeration evidence.")
     if value["mode"] == "tigernet":
         target_url(value.get("listing_url"))
+        for evidence_path in (path.with_name("field-validation.json"),):
+            try:
+                evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if (
+                isinstance(evidence, dict)
+                and evidence.get("target") == TARGET
+                and isinstance(evidence.get("field_coverage_evidence"), str)
+                and evidence["field_coverage_evidence"].strip()
+            ):
+                value["field_coverage_evidence"] = evidence["field_coverage_evidence"].strip()
+                break
         return value
     required = {"listing_url", "audit"}
     required |= (

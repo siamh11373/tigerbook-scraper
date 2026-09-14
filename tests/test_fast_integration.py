@@ -106,7 +106,6 @@ def test_async_transport_reuses_in_memory_session_and_collects_without_browser(
                     "origins": [],
                 },
                 "templates": session_templates,
-                "base_keys": {"name"},
                 "references": [
                     (
                         ProfileRef(reference_id, target + "/users/" + reference_id),

@@ -123,3 +123,27 @@ def test_no_contract_means_no_invented_integration(tmp_path):
         load_contract(tmp_path / "absent.json")
     with pytest.raises(ExtractionError):
         target_url("https://unapproved.test/people")
+
+
+def test_tigernet_contract_loads_separate_author_validation_evidence(tmp_path):
+    path = tmp_path / "site-contract.json"
+    path.write_text(
+        json.dumps(
+            {
+                "target": TARGET,
+                "mode": "tigernet",
+                "listing_url": TARGET + "/frontoffice/api/users?page=1&per_page=18",
+                "exhaustive": False,
+                "evidence": "Synthetic observed contract",
+            }
+        )
+    )
+    (tmp_path / "field-validation.json").write_text(
+        json.dumps(
+            {
+                "target": TARGET,
+                "field_coverage_evidence": "Author compared synthetic fields",
+            }
+        )
+    )
+    assert load_contract(path)["field_coverage_evidence"] == "Author compared synthetic fields"

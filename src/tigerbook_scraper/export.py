@@ -116,8 +116,6 @@ def export_run(state: State, directory: Path) -> dict:
         reasons.append("field_fidelity_not_verified")
     if state.get("direct_browser_mismatches", 0):
         reasons.append("direct_browser_mismatch")
-    if state.get("collection_mode") == "direct_requests_fixed_header":
-        reasons.append("fixed_header_field_subset")
     report = {
         **display,
         "raw_export": {"file": "profiles.raw.csv", **raw},
@@ -141,7 +139,7 @@ def export_run(state: State, directory: Path) -> dict:
         "direct_browser_mismatches": state.get("direct_browser_mismatches", 0),
         "startup_profiles_skipped": state.get("startup_profiles_skipped", 0),
         "browser_sessions": state.get("browser_sessions", 1),
-        "fixed_base_fields": state.get("fixed_base_fields"),
+        "base_field_strategy": state.get("base_field_strategy", "legacy_or_rendered_visibility"),
         "observed_totals": {
             phase: state.get(f"total:{phase}") for phase in ("discovery", "reconciliation")
         },

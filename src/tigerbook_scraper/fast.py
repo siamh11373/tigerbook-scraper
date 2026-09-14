@@ -27,10 +27,9 @@ from .models import ListingPage, ProfileRef
 from .recovery_gate import RecoveryGate
 from .section_cache import SectionCache
 from .tigernet import page_url, response_kind
-from .tigernet_fields import extract_profile
+from .tigernet_fields import extract_profile, visible_base_keys
 
 KINDS = {"base", "header", "body", "topics", "badges"}
-HEADER_KEYS = {"name", "headline", "photo_url", "cover_picture_url"}
 
 
 async def together(coroutines):
@@ -95,7 +94,7 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
             listing = adapter.list_page(None)
             if not listing.profiles:
                 raise DiscoveryError("No accessible profiles could establish fast collection.")
-            references, base_keys, templates, skipped = [], set(), None, 0
+            references, templates, skipped = [], None, 0
             for ref in listing.profiles:
                 if len(references) >= sample_size:
                     break
@@ -115,13 +114,6 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
                     progress("Skipped one incompatible startup profile; trying the next result.")
                     continue
                 references.append((ref, fields))
-                base_keys.update(
-                    key.removeprefix("Profile/")
-                    for key, value in fields.items()
-                    if key.startswith("Profile/")
-                    and isinstance(value, str)
-                    and key.removeprefix("Profile/") in HEADER_KEYS
-                )
                 templates = current
             if not references:
                 raise ExtractionError(
@@ -131,7 +123,6 @@ def bootstrap(credentials, contract, *, allow_interactive, sample_size=3, progre
             return {
                 "session": context.storage_state(),
                 "templates": templates,
-                "base_keys": base_keys,
                 "references": references,
                 "listing_total": listing.total,
                 "user_agent": page.evaluate("navigator.userAgent"),
@@ -293,8 +284,8 @@ class Client:
 
 
 class DirectProfiles:
-    def __init__(self, client, templates, base_keys, cache=None):
-        self.client, self.templates, self.base_keys = client, templates, base_keys
+    def __init__(self, client, templates, cache=None):
+        self.client, self.templates = client, templates
         self.cache = cache
 
     async def profile(self, ref):
@@ -377,7 +368,7 @@ class DirectProfiles:
                 **payloads,
                 rendered_text="",
                 rendered_html="",
-                visible_base_keys=self.base_keys,
+                visible_base_keys=visible_base_keys(payloads["base"], payloads["header"]),
             )
         )
 
@@ -404,18 +395,6 @@ class SessionPool:
 
     def discard(self, profile_id):
         self.profiles[int(profile_id) % len(self.profiles)].discard(profile_id)
-
-
-def stabilize_base_keys(setups, saved=None):
-    """Apply one fixed visible-header field set to every authenticated session."""
-    stable = (
-        set(saved) & HEADER_KEYS
-        if saved is not None
-        else set().union(*(item["base_keys"] for item in setups))
-    )
-    for item in setups:
-        item["base_keys"] = set(stable)
-    return stable
 
 
 async def collect_direct(
@@ -532,6 +511,7 @@ async def collect_direct(
                     counts["complete"] += 1
                 except (FetchError, ExtractionError) as error:
                     state.fail(ref.id, error.code)
+                    state.note("field_fidelity_verified", False)
                     counts["failed"] += 1
                     if budget is not None:
                         budget += 1
@@ -559,7 +539,6 @@ async def collect_direct(
             # Enumerate first to shorten the window in which last-activity sorting drifts.
             await discover(phase)
             await pending()
-        state.note("field_fidelity_verified", False)
     finally:
         stop_heartbeat.set()
         await heartbeat_task
@@ -637,7 +616,7 @@ async def session_run(
                 for request in requests
             ]
             profile_sources = [
-                DirectProfiles(client, item["templates"], item["base_keys"])
+                DirectProfiles(client, item["templates"])
                 for client, item in zip(clients, setups, strict=True)
             ]
             pool = SessionPool(clients, profile_sources)
@@ -652,22 +631,7 @@ async def session_run(
                         comparison_mismatches += 1
                         continue
 
-                    # Base header fields are deliberately fixed from startup observations;
-                    # labelled sections, memberships, badges and repeated records must agree.
-                    def core(fields):
-                        return {
-                            key: value
-                            for key, value in fields.items()
-                            if not key.startswith("Profile/")
-                            or key
-                            in (
-                                "Profile/introduction",
-                                "Profile/Alumni Communities",
-                                "Profile/Badges",
-                            )
-                        }
-
-                    if core(actual) != core(expected):
+                    if actual != expected:
                         comparison_mismatches += 1
             state.note("direct_browser_comparisons", comparisons)
             state.note("direct_browser_mismatches", comparison_mismatches)
@@ -681,8 +645,13 @@ async def session_run(
                     "Startup comparison found profile differences; continuing with local failure "
                     "tracking and a partial completion report."
                 )
-            state.note("fixed_base_fields", sorted(setups[0]["base_keys"]))
-            state.note("field_fidelity_verified", False)
+            state.note("fixed_base_fields", None)
+            state.note(
+                "field_fidelity_verified",
+                bool(contract.get("field_coverage_evidence"))
+                and comparisons > 0
+                and comparison_mismatches == 0,
+            )
             # Startup comparisons stay fresh; only queue collection uses cached sections.
             for profiles in profile_sources:
                 profiles.cache = section_cache
@@ -744,7 +713,15 @@ def collect_fast(
         )
     state.note("blocker", None)
     state.retry_failed()
-    state.note("collection_mode", "direct_requests_fixed_header")
+    if state.get("collection_mode") == "direct_requests_fixed_header":
+        state.note("collection_mode", "direct_requests_fixed_then_dynamic_header")
+        state.note(
+            "base_field_strategy",
+            "author_verified_fixed_then_per_profile_permitted_header_values",
+        )
+    else:
+        state.note("collection_mode", "direct_requests_dynamic_header")
+        state.note("base_field_strategy", "per_profile_permitted_header_values")
     state.note("field_fidelity_verified", False)
     previous_renewal = None
     while True:
@@ -763,7 +740,6 @@ def collect_fast(
                     progress=progress,
                 )
                 setups.append(item)
-            stabilize_base_keys(setups, state.get("fixed_base_fields"))
             asyncio.run(
                 session_run(
                     state,

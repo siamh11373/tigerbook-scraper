@@ -111,7 +111,8 @@ def test_fast_offline_export_uses_separate_scope(tmp_path, monkeypatch):
         ),
     )
     state.complete("1", {"Name": "Synthetic"})
-    state.note("collection_mode", "direct_requests_fixed_header")
+    state.note("collection_mode", "direct_requests_dynamic_header")
+    state.note("base_field_strategy", "per_profile_permitted_header_values")
     state.close()
     monkeypatch.setenv("TIGERNET_USERNAME", "incomplete-environment")
     assert main(["--fast", "--export-only", "--output-dir", str(tmp_path)]) == 2

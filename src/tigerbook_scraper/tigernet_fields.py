@@ -44,6 +44,39 @@ def clean_value(value):
     return value
 
 
+def visible_base_keys(base, header):
+    """Find base string fields also exposed by the permitted header response.
+
+    The result is derived for every profile. It does not rely on a fixed list of
+    field names, and restricted header nodes cannot make a base value exportable.
+    """
+
+    def strings(node):
+        if isinstance(node, dict):
+            if not allowed(node):
+                return set()
+            values = set()
+            for key, value in node.items():
+                if key not in ("privacy", "visibility", "user_editable"):
+                    values.update(strings(value))
+            return values
+        if isinstance(node, list):
+            values = set()
+            for value in node:
+                values.update(strings(value))
+            return values
+        if isinstance(node, str) and node.strip():
+            return {" ".join(node.split())}
+        return set()
+
+    exposed = strings(header)
+    return {
+        key
+        for key, value in base.items()
+        if isinstance(value, str) and value.strip() and " ".join(value.split()) in exposed
+    }
+
+
 def extract_profile(
     base, header, body, topics, badges, *, rendered_text, rendered_html, visible_base_keys=None
 ):

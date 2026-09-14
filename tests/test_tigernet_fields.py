@@ -1,7 +1,7 @@
 import pytest
 
 from tigerbook_scraper.errors import ExtractionError
-from tigerbook_scraper.tigernet_fields import extract_profile
+from tigerbook_scraper.tigernet_fields import extract_profile, visible_base_keys
 
 
 def source():
@@ -12,7 +12,13 @@ def source():
             "profile_is_private": False,
             "can_access_to_contact": True,
         },
-        "header": {"header": {"name": "Header", "type": "data", "data": []}},
+        "header": {
+            "header": {
+                "name": "Header",
+                "type": "data",
+                "data": [{"display_name": "Name", "value": "Synthetic", "privacy": "with_all"}],
+            }
+        },
         "body": {
             "center": [
                 {
@@ -42,6 +48,34 @@ def test_new_fields_are_discovered_and_restricted_fields_excluded():
     assert fields["Custom/Brand new field"] == "東京"
     assert "Custom/Admin field" not in fields
     assert fields["Profile/name"] == "Synthetic"
+
+
+def test_visible_base_keys_are_derived_per_profile_without_an_allowlist():
+    base = {
+        "name": "Synthetic",
+        "new_header_attribute": "Appeared late",
+        "hidden_backend_value": "Do not export",
+    }
+    header = {
+        "header": {
+            "name": "Header",
+            "type": "data",
+            "data": [
+                {"display_name": "Name", "value": "Synthetic", "privacy": "with_all"},
+                {
+                    "display_name": "New header attribute",
+                    "value": "Appeared late",
+                    "privacy": "with_all",
+                },
+                {
+                    "display_name": "Restricted",
+                    "value": "Do not export",
+                    "privacy": "with_admin",
+                },
+            ],
+        }
+    }
+    assert visible_base_keys(base, header) == {"name", "new_header_attribute"}
 
 
 def test_repeated_education_records_keep_their_associations():

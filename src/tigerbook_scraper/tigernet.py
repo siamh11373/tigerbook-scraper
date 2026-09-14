@@ -81,11 +81,9 @@ def all_topics(first, url, fetcher):
 
 
 class TigerNetAdapter(SiteAdapter):
-    # Consistency checks can pass before independent field-coverage review does.
-    field_coverage_verified = False
-
     def __init__(self, page, fetcher, contract):
         super().__init__(page, fetcher, contract)
+        self.field_coverage_verified = bool(contract.get("field_coverage_evidence"))
         self.last_audit = None
         # Ephemeral observations for the optional direct-request collector. Never
         # persist request headers: they may contain authentication material.
