@@ -20,6 +20,7 @@ from .errors import (
     DiscoveryError,
     ExtractionError,
     FetchError,
+    RateLimited,
 )
 from .fetch import login_response, retry_seconds
 from .fields import from_mapping, from_pairs
@@ -103,6 +104,8 @@ class SiteAdapter:
                     raise AccessBlocked("The server denied access. Collection stopped.")
                 if status == 429 or status >= 500:
                     delay = retry_seconds(response.headers.get("retry-after"))
+                    if status == 429 and self.fetcher.stop_on_throttle:
+                        raise RateLimited(delay)
                     if delay is not None and delay > 300:
                         raise AccessBlocked("Server requests a long pause; resume later.")
                     failures += 1

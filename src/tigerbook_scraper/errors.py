@@ -21,6 +21,14 @@ class AccessBlocked(ScraperError):
     code = "access_blocked"
 
 
+class RateLimited(AccessBlocked):
+    """Parsed wait only: never retain headers, URLs, or response bodies."""
+
+    def __init__(self, retry_after=None):
+        super().__init__("Server requested a collection cooldown.")
+        self.retry_after = retry_after
+
+
 class FetchError(ScraperError):
     code = "fetch_failed"
 

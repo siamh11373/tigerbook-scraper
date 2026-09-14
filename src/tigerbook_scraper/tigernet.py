@@ -9,7 +9,14 @@ from playwright.sync_api import Error as PlaywrightError
 
 from .adapter import SiteAdapter, target_url
 from .config import TARGET
-from .errors import AccessBlocked, AuthenticationError, DiscoveryError, ExtractionError, FetchError
+from .errors import (
+    AccessBlocked,
+    AuthenticationError,
+    DiscoveryError,
+    ExtractionError,
+    FetchError,
+    RateLimited,
+)
 from .fetch import login_response, retry_seconds
 from .models import ListingPage, ProfileRef
 from .tigernet_fields import extract_profile
@@ -112,7 +119,10 @@ class TigerNetAdapter(SiteAdapter):
         for attempt in range(self.fetcher.attempts):
             captured, failures, observed_requests = {}, [], {}
 
-            def pace(route):
+            def pace(route, _request=None, *, failures=failures):
+                if failures and self.fetcher.stop_on_throttle:
+                    route.abort()
+                    return
                 # Export image/link URLs from the profile structures and DOM;
                 # downloading their binary content adds no fields to the CSV.
                 if route.request.resource_type in ("image", "media", "font"):
@@ -173,6 +183,11 @@ class TigerNetAdapter(SiteAdapter):
                 self.page.unroute("**/*", pace)
             if any(status == 403 for status, _ in failures):
                 raise AccessBlocked("Profile data access was denied.")
+            if self.fetcher.stop_on_throttle and any(status == 429 for status, _ in failures):
+                waits = [retry_seconds(value) for status, value in failures if status == 429]
+                raise RateLimited(
+                    max((value for value in waits if value is not None), default=None)
+                )
             if any(status == 401 for status, _ in failures):
                 if renewed:
                     raise AuthenticationError("Profile session renewal failed.")

@@ -17,6 +17,11 @@ CHALLENGE = re.compile(
     r"two.factor authentication|multi.factor authentication",
     re.I,
 )
+HUMAN_CHALLENGE = re.compile(
+    r"verify you are human|verifying you are human|checking your browser|"
+    r"performing security verification|additional verification required",
+    re.I,
+)
 
 
 def origin(url: str) -> str:
@@ -55,7 +60,7 @@ def authenticate(
                 deadline = time.monotonic() + interactive_timeout
                 page.bring_to_front()
                 progress(
-                    "Complete the MFA approval in the browser or on your device. "
+                    "Complete the human verification or MFA in the browser or on your device. "
                     f"Waiting up to {interactive_timeout:g} seconds; do not enter codes in chat."
                 )
 
@@ -73,7 +78,7 @@ def authenticate(
             except PlaywrightError:
                 time.sleep(0.25)
                 continue
-            if CHALLENGE.search(text):
+            if CHALLENGE.search(text) or HUMAN_CHALLENGE.search(text):
                 handle_challenge()
                 page.wait_for_timeout(250)
                 continue

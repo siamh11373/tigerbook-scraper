@@ -122,6 +122,25 @@ Exit codes: `0` means a validated complete collection or successful requested di
 
 ## Faster request-based collection
 
+### Installed Chrome collection
+
+`python -m tigerbook_scraper.chrome` runs sequential profile navigation in installed Google
+Chrome. It reads the existing local credential configuration and waits for human verification
+or MFA when required. It resumes the existing `output/fast-full/` database after validating
+account, target, scope, and parser contract. Previously completed records are preserved;
+the report marks the collection as mixed fast/Chrome. No browser session is saved or exported.
+Use `python -m tigerbook_scraper.chrome --limit 15` for a separate `chrome-sample-15` run.
+
+The Chrome path retains the one-request-per-second data/navigation pacing and dynamic field
+parser. It does not promise a higher accepted service rate. On HTTP 429 it records the parsed
+`Retry-After`, blanks the page to cancel background traffic, and pauses collection for at
+least 300 seconds (600 on a second rejection). A third rejection stops with a saved deadline
+of at least 1,200 seconds; a server instruction longer than one hour also stops for later
+resume. A restart checks the saved deadline before login. HTTP 403 remains a blocking error.
+Successful collection is still subject to the existing field-fidelity and coverage checks.
+
+### Direct requests
+
 `--fast` still scrapes the directory. It uses normal browser authentication, captures the actual GET requests for up to three profiles, and compares direct responses against their rendered reference records before continuing. An incompatible startup profile is skipped while other results are tried. A comparison difference is recorded in the partial report instead of terminating collection. After startup, the browser closes and profile fetching uses concurrent requests. Credentials, session cookies, and observed authorization headers stay in process memory and are never written to Git, configuration, or run reports. If the session expires, normal browser authentication reopens; repeated renewal failures without collection progress stop the run.
 
 ```bash

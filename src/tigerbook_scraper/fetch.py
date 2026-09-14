@@ -8,7 +8,7 @@ from urllib.parse import urljoin, urlsplit
 
 from playwright.sync_api import Error as PlaywrightError
 
-from .errors import AccessBlocked, AuthenticationError, FetchError
+from .errors import AccessBlocked, AuthenticationError, FetchError, RateLimited
 
 
 def retry_seconds(value: str | None) -> float | None:
@@ -48,11 +48,21 @@ class Pacer:
 
 
 class Fetcher:
-    def __init__(self, request, target: str, reauthenticate, *, pacer=None, attempts=4):
+    def __init__(
+        self,
+        request,
+        target: str,
+        reauthenticate,
+        *,
+        pacer=None,
+        attempts=4,
+        stop_on_throttle=False,
+    ):
         self.request, self.target = request, urlsplit(target)
         self.reauthenticate = reauthenticate
         self.pacer = pacer or Pacer()
         self.attempts = attempts
+        self.stop_on_throttle = stop_on_throttle
 
     def get(self, url: str) -> tuple[str, str]:
         parsed = urlsplit(url)
@@ -97,6 +107,8 @@ class Fetcher:
                     raise AccessBlocked("The server denied access. Collection stopped.")
                 if status == 429 or 500 <= status < 600:
                     delay = retry_seconds(response.headers.get("retry-after"))
+                    if status == 429 and self.stop_on_throttle:
+                        raise RateLimited(delay)
                     if delay is not None and delay > 300:
                         raise AccessBlocked("Server requests a long pause; resume later.")
                     failures += 1

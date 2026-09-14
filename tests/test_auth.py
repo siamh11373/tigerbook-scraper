@@ -99,11 +99,10 @@ def test_form_action_cannot_send_credentials_to_unexpected_origin(browser):
 
 
 @pytest.mark.parametrize("complete", [True, False])
-def test_attended_mfa_waits_for_user_and_has_a_deadline(browser, complete):
+@pytest.mark.parametrize("challenge", ["Check your device", "Verify you are human"])
+def test_attended_mfa_waits_for_user_and_has_a_deadline(browser, complete, challenge):
     context = browser.new_context()
-    context.route(
-        "**/*", lambda route: route.fulfill(content_type="text/html", body="Check your device")
-    )
+    context.route("**/*", lambda route: route.fulfill(content_type="text/html", body=challenge))
     page = context.new_page()
     notices = []
 

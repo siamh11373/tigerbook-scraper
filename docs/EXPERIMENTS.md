@@ -268,3 +268,26 @@ directory integration remain unverified at that checkpoint. These changes remain
   retry was performed; the browser closed after the bounded check.
 - The diagnostic report and 50 script captures from this attempt remain local. Production
   behavior and THINKING.md are unchanged, and the full scrape remains stopped.
+
+### Full-run throttling and installed Chrome continuation
+
+- A full direct-request restart at 6/s increased saved profiles from 153 to 202, then
+  stalled through 97 HTTP 429 responses and stopped. The early 39-hour projection did
+  not survive sustained operation. Its previous per-request retry budgets allowed many
+  queued requests to receive rejections before any individual request exhausted retries.
+- The author reported normal Chrome browsing worked while a challenge failed in the
+  earlier automated environment. One bounded installed-Chrome test with manual login
+  verified directory access and profile identity, extracting 50 fields with values in
+  32 of the 39 requested presentation columns. This proves neither exhaustive field
+  coverage nor sustained throughput. No anti-detection changes or session copying were used.
+- Added a sequential installed-Chrome command that resumes the account/target/contract
+  validated fast-full database. It retains completed records and marks mixed collection
+  provenance. A first 429 now yields to a shared 300-second minimum cooldown, then 600
+  seconds on a second rejection. A third rejection stops with a persisted deadline of
+  at least 1,200 seconds. Longer parsed server instructions take precedence. The browser
+  is blanked during cooldown; a restart checks the deadline before authentication.
+- Added tests for first-response throttling on navigation and profile data, server wait
+  precedence, repeated rejection, interrupted cooldowns, and human challenge handoff.
+  The browser/offline suite passed 147 tests; six credential-loader tests passed separately
+  in the sandbox. No production dependency was added. Live full Chrome progress remains
+  to be established after authentication; the full collection goal is not complete.
