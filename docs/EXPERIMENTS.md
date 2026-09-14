@@ -310,3 +310,74 @@ directory integration remain unverified at that checkpoint. These changes remain
   running Chrome process was not restarted; it will retain its loaded runner until its next
   normal restart. THINKING.md, real data, credentials, and session material were not changed
   or included in the public commit.
+
+### Two-tab concurrency investigation
+
+- The installed-Chrome process reached 362 committed profiles with zero recorded failures,
+  at approximately 0.123 profiles/second. The existing process remains running unchanged.
+- Code inspection confirms that each ordinary profile consumes at least six pacing slots:
+  one document navigation and five recognized profile responses. Extra community pages and
+  retries add slots. With the current shared one-second interval, the ideal long-run ceiling
+  is about 0.167 profiles/second before other delays, roughly 1.36 times this observation.
+  This is a code-derived bound for the current pacing configuration, not a measured service
+  limit or a two-tab benchmark. Opening Chrome does not demonstrate a larger allowance.
+- The synchronous adapter attaches response listeners immediately before navigation and
+  removes them after capture. Merely preloading another tab would miss responses; sharing
+  these synchronous Playwright objects across worker threads is not the chosen design.
+  A two-tab implementation needs staged capture or an asynchronous scheduler, per-profile
+  identity checks, one persistence owner, and a shared cooldown that stops both tabs.
+  That implementation and its throughput measurement remain outstanding.
+
+### Bounded Chrome pacing benchmark launched
+
+- Added an explicit two-request-per-second option restricted to a 20-additional-profile
+  benchmark. It uses the full-run database and its persisted cooldown rather than a new
+  identity or session-state export. Default collection pacing is unchanged.
+- Eight focused non-browser tests passed, including invalid benchmark arguments rejected
+  before credentials are loaded; Ruff and whitespace checks passed. Live speed and field
+  results are not yet available.
+- The preceding process was interrupted at 402 completed profiles. A second SIGINT was
+  needed while Playwright handled its event listener; the process exited with code 130
+  and reported progress preserved. The replacement benchmark launched and requested human
+  verification or MFA. No benchmark success is claimed before protected collection resumes.
+
+- The two-request-per-second benchmark completed all 20 new profiles in 112.603 seconds
+  (0.178 profiles/second), versus roughly 0.123 for the preceding run. No recorded failures
+  or Chrome cooldown occurred. The export contains 422 rows and 70 columns and remains
+  partial. These different samples are not a controlled field-fidelity comparison and
+  this short run does not prove sustained acceptance. Added a 100-profile benchmark
+  option to measure a longer interval at the same pacing, without raising the rate.
+
+- At the user's request the longer 2/s test was stopped at 470 total completed records,
+  after adding 48 records without recorded failures. A subsequent 3/s test added 20 records
+  in 106.953 seconds (0.187 profiles/second), with no recorded Chrome cooldown or failures.
+  Export: 490 rows, 70 columns, partial. The small speed difference from 2/s is not a
+  controlled comparison. Enabled explicit full-run pacing choices 1, 2, and 3; default
+  remains 1 and all choices retain the existing first-429 handling and durable cooldown.
+
+### Dynamic header coverage and submission tracker
+
+- Review found that fast mode still named a fixed supplemental header subset even though
+  labelled profile sections were already extracted dynamically. The fixed subset was
+  removed. Each profile now derives eligible base-string keys from its permitted header
+  response. Restricted header nodes cannot expose backend values, and contact values still
+  require labelled contact privacy metadata.
+- Startup comparison now checks the complete direct record against the rendered browser
+  record. Coverage status also requires the author's separate `field-validation.json`
+  evidence. Synthetic tests cover a new header attribute appearing late, restricted values,
+  a changed base/header pair invalidating cached sections, and a public contract loading its
+  companion evidence.
+- The active collector keeps the code already loaded in memory. It was not restarted for
+  this change. The revised strategy applies at its next normal start or resume, preserving
+  the current SQLite queue and completed records.
+- The author confirmed manual field accuracy and coverage. The ongoing run's latest measured
+  pace supports a rough 65-hour estimate. Previous higher-rate, multi-session, HTML, and
+  candidate batch experiments did not establish a faster complete-record path accepted by
+  TigerNet.
+- Created a private native Google Sheets submission tracker with Run Status, Profiles,
+  Field Coverage, and Import Checks tabs. It contains headers and workflow status only, with
+  no scraped profile rows. Final import and sharing remain pending collection completion.
+- At the currently observed 76-column schema, 131,890 rows plus a header would require
+  10,023,716 cells. This exceeds Google Sheets' 10 million cell limit before tracker tabs.
+  Final export validation must recalculate the width. If it remains over the limit, preserve
+  all rows and fields across linked data spreadsheets instead of truncating the export.

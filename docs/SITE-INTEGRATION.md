@@ -1,26 +1,20 @@
-# Authenticated integration checkpoint
+# Authenticated TigerNet integration
 
-Attended login has now yielded two directory pages and three profile snapshots. A local `private/site-contract.json` records the observed listing URL. The TigerNet adapter is implemented and tested synthetically, but has not yet completed a live collection run. The contract and captured data remain local and are not distributed with the implementation.
+TigerNet uses Princeton CAS and requires Duo Push MFA in the observed login flow. The application enters the configured username and password programmatically, pauses for normal human approval, then verifies protected directory content. Fully unattended authentication was not possible in the observed supported flow. The author approved attended login and records this assessment deviation in `THINKING.md`.
 
-The adapter reads directory IDs from the observed structured listing, opens each observed canonical profile route, and captures the normal profile JSON responses. It handles community pagination, section-labelled fields, nested education/employment records, and privacy exclusions. The original generic DOM/JSON adapters described below remain separate alternatives.
+Reviewers use their own authorized Princeton accounts. They configure credentials locally through the hidden launcher prompt, environment variables, `.env.local`, or the ignored credential file. The repository contains no author account information, saved session, cookie, MFA material, or profile record.
 
-Outstanding issues include last-activity ordering (one duplicate across the first two pages), scope-filter semantics, independent field coverage, self-only fields, and additional badge pages. These prevent verified-complete reporting. The next checkpoint is a 15-profile attended run, not a full scrape.
+The sanitized `site-contract.json` contains the observed listing URL and parser mode. `field-validation.json` records the author's coverage review. Raw observations remain ignored because they can contain directory data and authenticated state.
 
-## Next experiment
-
-Run `python -m tigerbook_scraper.local_env --limit 15 --allow-interactive`. Enter credentials privately and approve normal MFA. Attended authentication is now authorized by the author, while the deviation from the original assessment remains documented.
-
-If login reaches the directory, inspect protected content and a small, varied profile sample. Establish stable IDs/URLs, permitted visibility, pagination/caps, the meaning of totals, tabs or expandable sections, and requests per profile. Compare ordinary structured responses with fully rendered profiles.
+The full run is underway in ignored SQLite state. Its last measured useful pace was about 0.56 completed profiles per second, producing a rough 65-hour collection estimate. Higher sustained request rates, additional browser sessions, raw HTML, and the observed multi-ID search candidate did not establish a faster complete-record path. TigerNet throttling remains the practical limit for the tested implementation.
 
 ## Current adapter capabilities
 
-The contract describes observed structures, not a field list. It requires the target, mode, and sanitized observation evidence. A true `exhaustive` flag requires `enumeration_evidence`; `field_coverage_evidence` references independent inspection of permitted field coverage.
+The contract describes observed structures, not a field list. It requires the target, mode, and sanitized observation evidence. A true `exhaustive` flag requires enumeration evidence. Field coverage requires separate author review plus fresh direct and browser comparison.
 
-- DOM mode supports profile cards, canonical links, a count-only total, and next-page links. It extracts visible sections with heading and label/value rows. Selectors belong to an observed contract, never a guessed default.
-- JSON mode supports an observed GET listing with IDs and profile URLs, a next URL or null, and a total. It extracts the permitted profile object at an observed object path, preserving its keys and nested values.
-- The current JSON adapter expects a discovered profile URL to return JSON and support a rendered fidelity comparison. Sites often use separate API/display URLs and different label keys. If TigerNet does, implement the observed mapping and comparison before selecting JSON mode. Do not guess URL templates or bypass audits.
-- Other pagination, separate API/display URLs, tabs, unlabeled profile elements, and repeated DOM record groups require site-specific implementation and tests after observation. The generic DOM row parser does not establish coverage of those layouts.
+- TigerNet mode reads stable IDs from the observed structured listing, fetches the five observed profile response types, follows community pagination, and extracts section labels dynamically.
+- Repeated employment and education records remain grouped. Header values are selected per profile from permitted header content, without a fixed key subset. Restricted and unfamiliar privacy structures are excluded or recorded for review.
+- Profile-level incompatibilities remain durable failures while the queue continues. Authentication denial, persistent throttling, and an invalid request contract stop the run because further requests would not produce reliable authorized records.
+- DOM and generic JSON modes remain tested alternatives for other observed contracts. Their synthetic selectors and paths are not evidence of TigerNet interfaces.
 
-Paths and selectors in `tests/test_adapter.py` are invented fixtures. They are not evidence of TigerNet interfaces and must not become a production contract.
-
-Keep any final contract free of personal data, tokens, tickets, signed URLs, and secrets. Raw inspections stay local. Package a reviewed production contract and necessary parser changes only after observations exist. Then rehearse fresh login, a small export, independent comparisons, and interruption/resume before full collection.
+Before claiming completion, finish the second enumeration pass, reconcile every ID and outcome, regenerate the CSV, and check the final Google Sheets cell count. The working submission tracker contains no profile rows. Final sharing is deferred until the completed data has been imported and reviewed.

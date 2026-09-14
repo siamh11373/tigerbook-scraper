@@ -2,7 +2,7 @@
 
 A Python application for resumable, permitted directory collection and validated UTF-8 CSV export. The repository keeps the assessment's original TigerBook name; the author confirmed **https://tigernet.princeton.edu/** as the target and confirmed bulk collection and sharing permission.
 
-**Status: attended browser collection exported 15 profiles with 57 columns. Concurrent direct-request mode is implemented but awaits its first live run.** Full collection and coverage verification remain unfinished. There is no full CSV or Google Sheet yet.
+**Status: the resumable full collection is running.** The latest measured extraction pace was about 0.56 profiles per second, giving a rough 65-hour collection window. TigerNet throttling prevents the tested client from sustaining a higher useful request rate. Field accuracy and coverage have been reviewed by the author. The full CSV remains incomplete until collection and reconciliation finish.
 
 The public login flow was inspected in a fresh browser on September 13, 2026. It leads to Princeton CAS at `https://fed.princeton.edu/cas/login`. No authenticated directory or profile endpoint has been guessed. Collection requires a parser contract established from actual authenticated observations.
 
@@ -74,7 +74,7 @@ It starts a fresh browser context, drives the observed CAS form, and saves a sma
 
 With `--allow-interactive`, a visible browser waits up to five minutes for you to complete normal MFA approval, then continues automatically. The same option applies to session renewal. Without it, interactive challenges still stop the run. No MFA approval or verification code is automated, and no saved browser session is reused. The author has authorized attended authentication for this project; this is a deviation from the original assessment's unattended requirement, not evidence that unattended login works.
 
-See [site integration](docs/SITE-INTEGRATION.md) for the remaining work. `--check-auth` checks a fresh session against a directory listing and an accessible profile. It requires a local site contract, which is not distributed in this repository.
+See [site integration](docs/SITE-INTEGRATION.md) for the observed integration and remaining checks. `--check-auth` checks a fresh session against a directory listing and an accessible profile. The sanitized parser contract is included as `site-contract.json`. Reviewers authenticate with their own authorized Princeton accounts; no author account information is required or included.
 
 ### Bounded performance comparison
 
@@ -110,11 +110,11 @@ python -m tigerbook_scraper --limit 25 --export-only
 python -m tigerbook_scraper --help
 ```
 
-`--output-dir` selects a separate run root. Use a directory outside the checkout, or inside an ignored directory. `--credentials-file` selects a private credential file. `--site-contract` selects parser configuration; the default is the ignored `private/site-contract.json`. A local contract has been created from the actual observed listing request. It is not included in the public repository.
+`--output-dir` selects a separate run root. Use a directory outside the checkout, or inside an ignored directory. `--credentials-file` selects a private credential file. `--site-contract` selects parser configuration; the default is the reviewed `site-contract.json` included in the repository. The contract contains parser structure and a listing URL only. It contains no credentials, cookies, profile records, or captured responses.
 
 The next local validation command is `python -m tigerbook_scraper.local_env --limit 15 --allow-interactive`. It uses authenticated listing requests and captures the profile responses made by the normal browser UI, then follows observed community pagination. It produces an explicitly partial sample under `output/sample-15/`. Profile-data requests are paced, and values are extracted from field metadata rather than a fixed field list. Leave the browser open during collection. Restart the same command to resume an interrupted sample. A partial export exits with code 2; inspect the report to distinguish the intentional sample limit from unresolved failures.
 
-The current listing sorts by last activity, and the first two observed pages overlap by one ID. Scope and exhaustive coverage are therefore unproven. The adapter deliberately keeps coverage and independent field-fidelity flags false. Rendered identity checks are consistency evidence only. Self-only, admin-only, and otherwise restricted fields are conservatively omitted; unusual privacy or section structures require investigation. Additional badge pages currently cause an explicit incomplete-profile error rather than silent truncation.
+The current listing sorts by last activity, and observed pages can overlap. The run deduplicates stable profile IDs and performs a second discovery pass before final reconciliation. Enumeration remains unproven until that pass finishes and its counts reconcile. The author recorded field-coverage verification in `field-validation.json`; direct responses must also match fresh browser reference profiles at startup. Self-only, admin-only, and otherwise restricted fields are omitted. Unusual privacy or section structures are recorded as profile failures so the remaining queue continues. Additional badge pages remain an explicit incomplete-profile result.
 
 The full run uses `output/full/`; each limit uses `output/sample-N/`. A run cannot be reused with a different account, target, scope, limit, or parser contract. Choose a new output directory for a new collection. An OS lock prevents two writers from sharing a run. Interrupt with Ctrl+C, then restart the same command. Resumed runs authenticate in a new browser context. Failed profiles are retried on restart; completed profiles are retained.
 
@@ -131,13 +131,28 @@ account, target, scope, and parser contract. Previously completed records are pr
 the report marks the collection as mixed fast/Chrome. No browser session is saved or exported.
 Use `python -m tigerbook_scraper.chrome --limit 15` for a separate `chrome-sample-15` run.
 
-The Chrome path retains the one-request-per-second data/navigation pacing and dynamic field
+The Chrome path defaults to one-request-per-second data/navigation pacing and retains dynamic field
 parser. It does not promise a higher accepted service rate. On HTTP 429 it records the parsed
 `Retry-After`, blanks the page to cancel background traffic, and pauses collection for at
 least 300 seconds (600 on a second rejection). A third rejection stops with a saved deadline
 of at least 1,200 seconds; a server instruction longer than one hour also stops for later
 resume. A restart checks the saved deadline before login. HTTP 403 remains a blocking error.
 Successful collection is still subject to the existing field-fidelity and coverage checks.
+
+For a bounded pacing experiment, stop any active collector first, then run:
+
+```bash
+python -m tigerbook_scraper.chrome --request-rate 2 --benchmark 20
+```
+
+Use `--benchmark 100` for a longer test at the same rate.
+
+This saves up to the selected number of additional completed profiles in the existing full-run database and
+exports a partial result. It does not change account or collection identity. The same saved
+cooldown applies across benchmark and normal runs. Pacing can be set to 1, 2, 3, or 6 with
+`--request-rate`; 6 requires a 20-profile benchmark. Omit `--benchmark` to resume full
+collection. Short benchmarks do not establish a sustainable service allowance. Default resume
+uses one-request-per-second pacing; every rate retains the same cooldown safeguards.
 
 ### Direct requests
 
@@ -177,7 +192,7 @@ base metadata, so this provides bounded staleness, not a source-consistent snaps
 
 Startup also tries 100 records with the observed `per_page` parameter. It only adopts that size if the response has the requested number of unique IDs, the same total, and includes the reference IDs; otherwise it keeps the original page size. The selected URL is saved locally and reused on resume. Discovery enumerates the observed listing before profile collection to shorten the exposure to last-activity ordering changes. After collection, a second pass discovers changed membership and collects newly discovered IDs. This does not prove exhaustive enumeration. Progress and an evolving time projection print about every ten seconds during active operations. The benchmark is also saved in SQLite. Keep the computer awake and Terminal open. Restart the same command to resume.
 
-Fast output is isolated in `output/fast-full/`, or `output/fast-sample-N/` with `--limit N`. The prior browser sample is unchanged. Fast mode still preserves metadata-labelled fields, repeated employment/education records, contact privacy controls, and paginated communities. Additional badge pages remain an explicit extraction failure. Supplementary header extraction uses a fixed observed subset of name, headline, photo URL, and cover-photo URL; base-object contact fields are excluded because their field-level privacy must be checked in the labelled contact section. Header fields outside that subset can be omitted. This is an explicitly documented departure from exhaustive dynamic field capture, authorized by the author. The report retains `fixed_header_field_subset` and unverified coverage reasons even when all discovered profiles finish.
+Fast output is isolated in `output/fast-full/`, or `output/fast-sample-N/` with `--limit N`. The prior browser sample is unchanged. Fast mode preserves metadata-labelled fields, repeated employment and education records, contact privacy controls, and paginated communities. Additional badge pages remain an explicit extraction failure. Supplementary header values are selected separately for every profile by comparing the permitted header response with the base response. This removes the fixed header-field subset. Contact values still require the labelled contact section and its field-level privacy metadata. A new header attribute is included without a code change when its permitted value is present in the header response.
 
 ## Persistence, retries, and fields
 
@@ -187,7 +202,7 @@ The default browser mode is sequential. Explicit data fetches and browser naviga
 
 Browser-generated background requests need inspection before claiming a site-wide request rate. If they produce additional directory/profile calls, the final adapter must pace those too. Check this and stricter service limits before a full run.
 
-Field names come from the observed profile object or recognized section/label/value structures. There is no fixed profile-field list. Section/label separators are escaped; original labels are retained in SQLite and the raw export. The readable export formats repeated and nested values as labelled multiline text; the raw companion retains JSON inside cells. Links and image URLs inside recognized fields are preserved. Unknown structures raise an extraction problem. Private or inaccessible fields are outside scope.
+Field names come from the observed profile object or recognized section/label/value structures. There is no extraction allowlist. The 39 supplied names control readable column order and guarantee that those columns exist even when empty. They do not limit collection. Section and label separators are escaped; original labels are retained in SQLite and the raw export. The readable export formats repeated and nested values as labelled multiline text; the raw companion retains JSON inside cells. Links and image URLs inside recognized fields are preserved. Unknown structures record an extraction problem for that profile and collection continues. Private or inaccessible fields are outside scope.
 
 ## Export and evidence
 
@@ -208,7 +223,9 @@ Coverage spans a collection window, not an atomic source snapshot. Membership ch
 
 ## Google Sheets and submission
 
-Upload the CSV manually to an approved destination. Google Sheets permits [up to 10 million cells or 18,278 columns](https://support.google.com/drive/answer/37603). The report includes required cells, columns, maximum cell length, and cells resembling formulas or numbers. Check current service limits before import. If the dataset does not fit, agree on an alternative instead of truncating it.
+Upload the CSV manually to an approved destination. Google Sheets permits [up to 10 million cells or 18,278 columns](https://support.google.com/drive/answer/37603). The report includes required cells, columns, maximum cell length, and cells resembling formulas or numbers. At 131,890 rows, 76 columns would require 10,023,716 cells before tracker tabs, so the completed schema must be checked again. If it exceeds the limit, preserve the CSV and use linked partitioned Google Sheets instead of dropping fields or profiles.
+
+The working [TigerNet Scraper Submission Tracker](https://docs.google.com/spreadsheets/d/1aGuCsbjIQW66mlWTE1Ti0UGoFPbIWmlibSR8rn6ueLk/edit) contains four tabs: run status, an import-ready profile header, field coverage, and final import checks. It contains no scraped profile rows. The final data and view permission remain pending until collection completes.
 
 Preserve values as text during import, including disabling conversion to numbers, dates, or formulas when offered. CSV quoting alone does not prevent formula evaluation or numeric conversion. The readable file prefixes formula-like and leading-zero values with an apostrophe; some spreadsheet importers display that apostrophe literally. The raw file retains the original strings without that presentation change. Verify leading zeros, `+` prefixes, formula-like strings, dates, Unicode, and multiline values. Keep the raw CSV and database as the source of truth. The report leaves `manual_sheet_import_verified` false; a human must document import/sharing checks and provide the actual Sheet link.
 
@@ -225,11 +242,20 @@ Tests use invented profiles and intercepted traffic, with an unusable proxy prev
 
 Remaining live acceptance steps:
 
-1. Run the 15-profile attended validation and check the produced sample and report.
-2. Establish reliable enumeration and permitted field coverage from observed behavior, including source sorting and scope filters.
-3. Independently compare varied profiles and rehearse live interruption/resume.
-4. Measure requests and elapsed time, estimate collection duration, then run the permitted collection.
-5. Audit coverage and field fidelity; rehearse installation plus fresh authentication from a new checkout.
-6. Manually import and verify the Sheet; provide verified repository and Sheet links.
+1. Let the resumable full collection finish at the measured accepted pace.
+2. Run the second discovery pass and reconcile discovered, completed, failed, and exported IDs.
+3. Resolve or disclose remaining profile failures and regenerate the validated CSV.
+4. Rehearse installation and attended authentication from a fresh checkout with a reviewer's own account.
+5. Import the final data, update the tracker counts, verify values and sharing, and provide the final Sheet link.
+
+## Architecture map
+
+- `auth.py` and `local_env.py` drive fresh CAS login, local credential loading, and attended Duo handoff.
+- `adapter.py` and `tigernet.py` load the observed contract and implement directory and profile access.
+- `fast.py`, `chrome.py`, `fetch.py`, and `section_cache.py` handle collection, pacing, throttling, retries, and bounded response reuse.
+- `tigernet_fields.py`, `fields.py`, and `presentation.py` perform dynamic extraction and readable field projection.
+- `state.py` owns SQLite checkpoints, stable IDs, deduplication, attempts, and run identity.
+- `export.py` produces the readable and raw UTF-8 CSVs plus the completion report.
+- `runner.py` and `__main__.py` coordinate the single-command workflow and exit status.
 
 [THINKING.md](THINKING.md) is reserved for the author's direct thoughts. [The experiment log](docs/EXPERIMENTS.md) records factual experiments and AI assistance. Credentials, sessions, confidential assessments, local knowledge bases, real fixtures, databases, exports, and inspection files must remain outside the public repository. Review staged contents before every push; ignore rules alone do not guarantee privacy.
