@@ -142,7 +142,7 @@ def main():
     if not rows:
         raise ValueError("Missing references")
     samples = [rows[index] for index in sorted({0, len(rows) // 2, len(rows) - 1})]
-    contract = load_contract(Path("private/site-contract.json"))
+    contract = load_contract(Path("site-contract.json"))
     scripts = []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False)

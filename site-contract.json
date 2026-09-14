@@ -1,0 +1,7 @@
+{
+  "target": "https://tigernet.princeton.edu",
+  "mode": "tigernet",
+  "listing_url": "https://tigernet.princeton.edu/frontoffice/api/users?page=1&query%5Bexclude_current_user%5D=false&query%5Blast_location%5D=false&query%5Binclude_users_with_no_locations%5D=false&sort_by=last_seen_at&order=desc&per_page=18",
+  "exhaustive": false,
+  "evidence": "Local authenticated inspection: two listing pages and three profiles, 2026-09-13. Field coverage and stable enumeration remain unverified."
+}

@@ -11,7 +11,7 @@ from .auth import authenticate
 from .config import TARGET, Credentials, load_credentials, scope_name
 from .errors import AccessBlocked, RateLimited, ScraperError
 from .export import export_run
-from .fetch import Fetcher
+from .fetch import Fetcher, Pacer
 from .local_env import read_env_file
 from .locking import run_lock
 from .runner import collect
@@ -21,13 +21,15 @@ from .tigernet import TigerNetAdapter
 class CoolingAdapter:
     """One browser and one operation at a time; no queued recovery burst."""
 
-    field_coverage_verified = False
-
     def __init__(self, adapter, state, *, pause, sleep=time.sleep, clock=time.time, progress=print):
         self.adapter, self.state = adapter, state
         self.pause, self.sleep, self.clock, self.progress = pause, sleep, clock, progress
         self.started = clock()
         self.initial = state.counts()["complete"]
+
+    @property
+    def field_coverage_verified(self):
+        return self.adapter.field_coverage_verified
 
     def wait(self):
         until = self.state.get("chrome_cooldown_until", 0)
@@ -99,8 +101,25 @@ def main(argv=None):
         "--limit", type=int, help="Separate Chrome sample; never limits the saved full run"
     )
     parser.add_argument("--output-dir", type=Path, default=Path("output"))
-    parser.add_argument("--site-contract", type=Path, default=Path("private/site-contract.json"))
+    parser.add_argument("--site-contract", type=Path, default=Path("site-contract.json"))
+    parser.add_argument(
+        "--request-rate",
+        type=int,
+        choices=(1, 2, 3, 6),
+        default=1,
+        help="Shared paced navigation/data requests per second",
+    )
+    parser.add_argument(
+        "--benchmark",
+        type=int,
+        choices=(20, 100),
+        help="Collect a bounded number of additional profiles in the saved full run",
+    )
     args = parser.parse_args(argv)
+    if args.request_rate == 6 and args.benchmark != 20:
+        parser.error("Rate 6 requires a bounded --benchmark 20 experiment.")
+    if args.benchmark is not None and args.limit is not None:
+        parser.error("--benchmark uses full-run state and cannot combine with --limit.")
     os.umask(0o077)
     state = None
     try:
@@ -134,7 +153,13 @@ def main(argv=None):
                         return authenticate(page, credentials, allow_interactive=True)
 
                     login()
-                    fetcher = Fetcher(context.request, TARGET, login, stop_on_throttle=True)
+                    fetcher = Fetcher(
+                        context.request,
+                        TARGET,
+                        login,
+                        stop_on_throttle=True,
+                        pacer=Pacer(1 / args.request_rate),
+                    )
                     adapter = CoolingAdapter(
                         TigerNetAdapter(page, fetcher, contract),
                         state,
@@ -145,7 +170,13 @@ def main(argv=None):
                         "collection_mode",
                         "mixed_fast_and_chrome" if scope == "fast-full" else "chrome",
                     )
-                    collect(adapter, state, limit=args.limit)
+                    stop_at = (
+                        state.counts()["complete"] + args.benchmark
+                        if args.benchmark
+                        else args.limit
+                    )
+                    state.note("chrome_request_rate", args.request_rate)
+                    collect(adapter, state, limit=stop_at)
                 finally:
                     browser.close()
             report = export_run(state, directory)

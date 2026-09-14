@@ -141,3 +141,22 @@ def test_browser_throttling_yields_to_global_cooldown(browser, location):
     assert caught.value.retry_after == 720
     assert rejections == [True]
     context.close()
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--request-rate", "0"],
+        ["--request-rate", "6"],
+        ["--request-rate", "6", "--benchmark", "100"],
+        ["--request-rate", "4", "--benchmark", "20"],
+        ["--benchmark", "20", "--limit", "15"],
+        ["--benchmark", "0"],
+    ],
+)
+def test_invalid_benchmark_rejected_before_credentials(args):
+    from tigerbook_scraper.chrome import main
+
+    with pytest.raises(SystemExit) as error:
+        main(args)
+    assert error.value.code == 2

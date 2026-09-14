@@ -51,7 +51,7 @@ def parser():
     )
     value.add_argument("--credentials-file", type=Path, default=Path("credentials.local.json"))
     value.add_argument("--output-dir", type=Path, default=Path("output"))
-    value.add_argument("--site-contract", type=Path, default=Path("private/site-contract.json"))
+    value.add_argument("--site-contract", type=Path, default=Path("site-contract.json"))
     return value
 
 
