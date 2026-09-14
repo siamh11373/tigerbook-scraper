@@ -255,3 +255,16 @@ directory integration remain unverified at that checkpoint. These changes remain
   coverage, account access, field equivalence, and any speedup remain unverified.
 - Scripts, inspection helpers, and diagnostic reports remain in ignored local output.
   No production collection change or full scrape was started; THINKING.md was untouched.
+
+### Three-profile candidate check after MFA approval
+
+- On September 14, the author approved a fresh Princeton MFA attempt. The bounded probe
+  observed all five normal profile response types before testing the SDK-observed GET
+  user-search method with three previously discovered profile IDs.
+- The candidate returned HTTP 500. No usable candidate records were obtained, and field
+  equivalence and throughput could not be measured. No 403/429 statuses were recorded
+  during this observation. A single 500 does not establish the cause, prove the method
+  unsupported, or determine its full response schema. No parameter guessing or automatic
+  retry was performed; the browser closed after the bounded check.
+- The diagnostic report and 50 script captures from this attempt remain local. Production
+  behavior and THINKING.md are unchanged, and the full scrape remains stopped.
