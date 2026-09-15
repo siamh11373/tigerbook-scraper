@@ -24,10 +24,9 @@ Request limiting was the biggest problem. Each profile requires several requests
 changes have a large effect across roughly 131,000 profiles. Trying to force a higher rate made the
 scraper slower because TigerNet responded with throttling and cooldowns.
 
-The latest saved benchmark completed 1,846 profiles in 3,309 seconds, or about 0.56 profiles per
-second. At that pace, scraping multiple fields from the full directory is possible in roughly 65
-hours. This is an estimate. Duo approvals, interruptions, cooldowns, retries, and reconciliation
-can add time.
+The latest saved benchmark completed 29,846 profiles. At that pace, scraping multiple fields from 
+the full directory is possible in roughly 65 hours. This is an estimate. Duo approvals, interruptions, 
+cooldowns, retries, and reconciliation can add time.
 
 I accepted the slower pace because it was the fastest complete-record approach that remained
 stable. The scraper now starts conservatively, adjusts its rate from live responses, honors
